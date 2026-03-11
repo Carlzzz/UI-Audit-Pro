@@ -1,0 +1,18 @@
+# 忽略敏感配置文件 (这是你目前最需要的)
+.env
+*.local
+
+# 忽略 Python 缓存和虚拟环境
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+
+# 忽略 Mac 系统文件
+.DS_Store
+
+# 忽略编辑器配置
+.vscode/
+.idea/
