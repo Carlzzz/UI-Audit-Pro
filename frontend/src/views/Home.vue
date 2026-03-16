@@ -23,6 +23,13 @@
                 <div class="mode-option-desc">自动审计 UI 规范数值、色值、间距等一致性</div>
               </div>
             </div>
+            <div class="mode-option" :class="{ selected: mode === 'component' }" @click="mode = 'component'">
+              <div class="mode-option-icon">品</div>
+              <div class="mode-text">
+                <div class="mode-option-title">组件模式走查</div>
+                <div class="mode-option-desc">细化至各类组件的尺寸、状态及间距检测</div>
+              </div>
+            </div>
             <div class="mode-option" :class="{ selected: mode === 'design' }" @click="mode = 'design'">
               <div class="mode-option-icon">🖼</div>
               <div class="mode-text">
@@ -161,13 +168,13 @@ const goTo = (path) => router.push(path)
 .hero-section { padding-top: 100px; padding-bottom: 50px; text-align: center; }
 .hero-title { font-size: 2.8rem; font-weight: 700; color: #1a1d2e; margin-bottom: 16px; letter-spacing: -0.02em; }
 .hero-subtitle { font-size: 1.05rem; color: #6b7280; margin-bottom: 40px; }
-.entry-card { background: #fff; border-radius: 16px; border: 1px solid #e8eaf0; box-shadow: 0 10px 40px rgba(60,72,120,0.06); padding: 32px; max-width: 720px; margin: 0 auto; }
+.entry-card { background: #fff; border-radius: 16px; border: 1px solid #e8eaf0; box-shadow: 0 10px 40px rgba(60,72,120,0.06); padding: 32px; max-width: 900px; margin: 0 auto; }
 .url-input-wrap { margin-bottom: 24px; }
 .input-group { position: relative; }
 .input-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 1.1rem; }
 .input-field { width: 100%; font-size: 1.05rem; padding: 16px 16px 16px 48px; border: 1px solid #e2e4ec; border-radius: 10px; outline: none; transition: border-color 0.2s; box-sizing: border-box;}
 .input-field:focus { border-color: #3b6ef8; box-shadow: 0 0 0 3px rgba(59,110,248,0.1); }
-.mode-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.mode-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
 .mode-option { display: flex; align-items: flex-start; gap: 12px; padding: 18px; border: 1.5px solid #e2e4ec; border-radius: 12px; cursor: pointer; transition: all 0.2s; background: #fff; text-align: left;}
 .mode-option:hover { border-color: #3b6ef8; background: #f0f4ff; }
 .mode-option.selected { border-color: #3b6ef8; background: #f0f4ff; box-shadow: 0 4px 12px rgba(59,110,248,0.08); }

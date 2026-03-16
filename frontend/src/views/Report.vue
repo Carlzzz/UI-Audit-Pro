@@ -30,7 +30,9 @@
                   </div>
                 </div>
                 <div class="score-detail">
-                  <div class="score-badge">↑ 击败了全国 92% 的项目</div>
+                  <div class="score-badge" :class="reportData.score >= 90 ? 'badge-good' : (reportData.score >= 70 ? 'badge-ok' : 'badge-bad')">
+                    {{ reportData.score >= 90 ? '🌟 表现优秀，基本符合规范' : (reportData.score >= 70 ? '⚠️ 存在部分偏差，建议修复' : '🚨 偏离度较高，需重点整改') }}
+                  </div>
                   <div class="score-desc">本次走查发现 {{ reportData.issueCount || 0 }} 个规范问题。建议优先修复高优问题。</div>
                   <div class="score-stats" v-if="auditStore.checkMode === 'baseline'">
                     <div class="stat-block">
@@ -48,9 +50,11 @@
             <div>
               <div class="issue-list-hd">
                 <div class="issue-list-title">关键问题清单 <span class="issue-list-cnt">{{ filteredIssues.length }}</span></div>
-                <div class="issue-filter-btns no-print">
-                  <button class="filter-btn" :class="{active: filter === 'all'}" @click="filter = 'all'">全部</button>
-                  <button class="filter-btn" :class="{active: filter === 'high'}" @click="filter = 'high'">高严重度</button>
+                <div class="issue-filter-btns no-print" style="flex-wrap: wrap; justify-content: flex-end; max-width: 60%;">
+                  <button class="filter-btn" :class="{active: filter === 'all'}" @click="filter = 'all'">全部问题</button>
+                  <button class="filter-btn" :class="{active: filter === 'high'}" @click="filter = 'high'">高严重度 (必改)</button>
+                  <!-- 动态渲染分类过滤器 -->
+                  <button v-for="cat in availableCategories" :key="cat" class="filter-btn" :class="{active: filter === 'cat:' + cat}" @click="filter = 'cat:' + cat">分类: {{ cat }}</button>
                 </div>
               </div>
               
@@ -105,20 +109,20 @@
               <div class="meta-row"><span class="meta-lbl">基准模式</span><span class="meta-val">{{ auditStore.checkMode === 'baseline' ? '规范基准' : 'UI 设计稿' }}</span></div>
             </div>
 
-            <div class="help-card no-print">
-              <div class="help-title">需要帮助？</div>
-              <div class="help-desc">如果走查结果存在误报，您可以手动标记该条目为“已忽略”。</div>
-              <div class="help-btn-wrap">
-                <button class="help-btn">反馈问题</button>
-                <div class="help-tooltip">此功能开发中，敬请期待</div>
-              </div>
-            </div>
-
             <div class="meta-card" style="padding:15px; margin-top:15px;">
               <div style="font-weight:bold; font-size:0.84rem; margin-bottom:10px;">实际页面快照</div>
               <img v-if="reportData.screenshot" :src="'data:image/png;base64,' + reportData.screenshot" style="width:100%; border:1px solid #e8eaf0; border-radius:8px;"/>
               <div v-else style="padding:40px 10px; text-align:center; background:#f9fafb; color:#9ca3af; font-size:0.8rem; border-radius:8px; border:1px dashed #e8eaf0;">
                 此条走查记录暂无快照数据
+              </div>
+            </div>
+
+            <div class="help-card no-print" style="margin-top:15px;">
+              <div class="help-title">需要帮助？</div>
+              <div class="help-desc">如果走查结果存在误报，您可以手动标记该条目为“已忽略”。</div>
+              <div class="help-btn-wrap">
+                <button class="help-btn">反馈问题</button>
+                <div class="help-tooltip">此功能开发中，敬请期待</div>
               </div>
             </div>
             
@@ -157,9 +161,21 @@ const reportData = auditStore.reportData
 const filter = ref('all')
 const trendData = ref([])
 
+const availableCategories = computed(() => {
+  if (!reportData || !reportData.issues) return []
+  const cats = new Set(reportData.issues.map(i => i.category || '未分类'))
+  return Array.from(cats)
+})
+
 const filteredIssues = computed(() => {
   if (!reportData || !reportData.issues) return []
-  return filter.value === 'all' ? reportData.issues : reportData.issues.filter(i => i.level === filter.value)
+  if (filter.value === 'all') return reportData.issues
+  if (filter.value === 'high') return reportData.issues.filter(i => i.level === 'high')
+  if (filter.value.startsWith('cat:')) {
+    const catName = filter.value.split(':')[1]
+    return reportData.issues.filter(i => (i.category || '未分类') === catName)
+  }
+  return reportData.issues
 })
 
 const formattedUrl = computed(() => {
@@ -243,7 +259,10 @@ const goTo = (path) => router.push(path)
 .ring-pct { font-size: 1.6rem; font-weight: 800; color: #3b6ef8; line-height: 1; }
 .ring-sub { font-size: 0.68rem; color: #9ca3af; margin-top: 3px; }
 .score-detail { flex: 1; }
-.score-badge { display: inline-flex; background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 99px; font-size: 0.78rem; font-weight: 600; margin-bottom: 12px; }
+.score-badge { display: inline-flex; padding: 4px 12px; border-radius: 99px; font-size: 0.78rem; font-weight: 600; margin-bottom: 12px; }
+.badge-good { background: #d1fae5; color: #065f46; }
+.badge-ok { background: #fef3c7; color: #92400e; }
+.badge-bad { background: #fee2e2; color: #991b1b; }
 .score-desc { font-size: 0.86rem; color: #6b7280; line-height: 1.75; margin-bottom: 18px; }
 .score-stats { display: flex; gap: 28px; align-items: flex-start; }
 .stat-val { font-size: 1.2rem; font-weight: 800; color: #1a1d2e; }

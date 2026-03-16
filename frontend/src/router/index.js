@@ -16,4 +16,15 @@ const router = createRouter({
     { path: '/dashboard', component: () => import('../views/Dashboard.vue') }
   ]
 })
+
+import { useUserStore } from '../store/user'
+router.beforeEach((to, from, next) => {
+  const userStore = useUserStore()
+  if (to.path !== '/login' && !userStore.userInfo) {
+    next('/login')
+  } else {
+    next()
+  }
+})
+
 export default router
