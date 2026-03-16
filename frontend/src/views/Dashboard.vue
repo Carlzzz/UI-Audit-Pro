@@ -3,7 +3,27 @@
     <AppNavbar variant="breadcrumb">
       <template #actions>
         <button class="btn btn-primary" style="margin-right:24px;" @click="goTo('/report')">📄 生成详细报告</button>
-      </template>
+      
+    <!-- 全局悬浮气泡：彻底脱离父级层级限制 -->
+    <Teleport to="body">
+      <div class="global-annotation-popover" :class="{ 'is-visible': hoveredGroup }" @mouseenter="onPopoverEnter" @mouseleave="onPopoverLeave">
+        <template v-if="hoveredGroup">
+          <div class="popover-header">
+            <span class="ph-badge" :class="hoveredGroup.level === 'high' ? 'badge-critical' : 'badge-warning'">
+              {{ hoveredGroup.level === 'high' ? 'CRITICAL' : 'WARNING' }}
+            </span>
+            <span>该区域捕获 {{ hoveredGroup.items.length }} 个异常</span>
+          </div>
+          <div v-for="(issue, idx) in hoveredGroup.items" :key="issue.id" class="popover-item" :class="{'mt-border': idx > 0}">
+            <div class="popover-title"><span v-if="hoveredGroup.items.length > 1" style="color:#9ca3af; margin-right:4px;">{{ idx + 1 }}.</span>{{ issue.title }}</div>
+            <div class="popover-desc"><span class="pop-lbl">实测：</span>{{ issue.desc }}</div>
+            <div class="popover-sugg"><span class="pop-lbl">建议：</span>{{ issue.suggestion }}</div>
+          </div>
+        </template>
+      </div>
+    </Teleport>
+
+</template>
     </AppNavbar>
 
     <div class="dashboard-main">
@@ -21,26 +41,23 @@
             <img v-if="reportData.screenshot" :src="'data:image/png;base64,' + reportData.screenshot" class="actual-img" />
             <div v-else class="actual-img-placeholder">📸 后端未返回截图</div>
             
-            <template v-if="reportData.issues && reportData.issues.length > 0">
-              <div v-for="issue in reportData.issues" :key="issue.id"
-                   v-show="issue.rect"
+            <template v-if="groupedIssues.length > 0">
+              <div v-for="(group, idx) in groupedIssues" :key="group.id"
                    class="annotation-box"
-                   :class="issue.level === 'high' ? 'ann-critical' : 'ann-warning'"
+                   :class="group.level === 'high' ? 'ann-critical' : 'ann-warning'"
                    :style="{ 
-                     top: issue.rect.top + 'px', 
-                     left: issue.rect.left + 'px', 
-                     width: issue.rect.width + 'px', 
-                     height: issue.rect.height + 'px' 
-                   }">
+                     top: group.rect.top + 'px', 
+                     left: group.rect.left + 'px', 
+                     width: group.rect.width + 'px', 
+                     height: group.rect.height + 'px',
+                     zIndex: 10 + idx
+                   }"
+                   @mouseenter="onBoxEnter(group)"
+                   @mouseleave="onBoxLeave()">
                 
-                <span class="annotation-label">{{ issue.category }}异常</span>
-                
-                <div class="annotation-popover">
-                  <div class="popover-title">{{ issue.title }}</div>
-                  <div class="popover-desc"><span class="pop-lbl">实测：</span>{{ issue.desc }}</div>
-                  <div class="popover-sugg"><span class="pop-lbl">建议：</span>{{ issue.suggestion }}</div>
-                </div>
-
+                <span class="annotation-label">
+                  {{ group.items.length > 1 ? `发现 ${group.items.length} 个异常` : `${group.items[0].category}异常` }}
+                </span>
               </div>
             </template>
           </div>
@@ -63,10 +80,20 @@
               <tr><th style="width:25%">审计项</th><th style="width:25%">实测值</th><th style="width:35%">标准值/建议</th><th style="width:15%; text-align:right;">状态</th></tr>
             </thead>
             <tbody>
-              <tr><td colspan="4" class="group-title">1. 异常诊断列表</td></tr>
+              <tr>
+                <td colspan="4" class="group-title" style="padding-bottom: 5px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>1. 异常诊断列表</span>
+                    <select v-model="selectedCategory" style="padding:4px 8px; border-radius:4px; border:1px solid #e5e7eb; font-size:12px; outline:none; background:#f9fafb; cursor:pointer; color:#4b5563;">
+                      <option value="all">全部问题分类</option>
+                      <option v-for="cat in availableCategories" :key="cat" :value="cat">{{ cat }}</option>
+                    </select>
+                  </div>
+                </td>
+              </tr>
               
               <template v-if="reportData.issues && reportData.issues.length > 0">
-                <tr v-for="issue in reportData.issues" :key="issue.id" class="data-row">
+                <tr v-for="issue in filteredTableIssues" :key="issue.id" class="data-row">
                   <td class="attr-name" :title="issue.title">{{ (issue.title || '未知').substring(0,8) }}</td>
                   <td class="actual-val" :class="issue.level==='high' ? 'val-err' : 'val-warn'">{{ extractValue(issue.desc, true) }}</td>
                   <td class="standard-val">
@@ -93,7 +120,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppNavbar from '../components/AppNavbar.vue'
 import { useAuditStore } from '../store/audit'
@@ -103,9 +130,73 @@ const auditStore = useAuditStore()
 const reportData = auditStore.reportData
 
 const zoom = ref(50)
+const selectedCategory = ref('all')
+const hoveredGroup = ref(null)
+
+let hoverTimer = null
+
+const onBoxEnter = (group) => {
+  if (hoverTimer) clearTimeout(hoverTimer)
+  hoveredGroup.value = group
+}
+
+const onBoxLeave = () => {
+  // 留出 400ms 的缓冲时间，允许用户将鼠标移动到屏幕中央的弹框上
+  hoverTimer = setTimeout(() => {
+    hoveredGroup.value = null
+  }, 400)
+}
+
+const onPopoverEnter = () => {
+  if (hoverTimer) clearTimeout(hoverTimer)
+}
+
+const onPopoverLeave = () => {
+  hoverTimer = setTimeout(() => {
+    hoveredGroup.value = null
+  }, 300)
+}
+
+const availableCategories = computed(() => {
+  if (!reportData || !reportData.issues) return []
+  const cats = new Set(reportData.issues.map(i => i.category || '未分类'))
+  return Array.from(cats)
+})
 
 onMounted(() => {
   if (!reportData) setTimeout(() => router.push('/'), 1500)
+})
+
+const filteredTableIssues = computed(() => {
+  if (!reportData || !reportData.issues) return []
+  if (selectedCategory.value === 'all') return reportData.issues
+  return reportData.issues.filter(i => (i.category || '未分类') === selectedCategory.value)
+})
+
+// 🌟 将相同坐标的 issue 分组，避免在图上重叠导致只能看到一个框
+const groupedIssues = computed(() => {
+  const issuesToGroup = filteredTableIssues.value
+  if (!issuesToGroup || issuesToGroup.length === 0) return []
+  const groups = {}
+  issuesToGroup.forEach(issue => {
+    if (!issue.rect) return
+    // 用坐标生成唯一 key
+    const key = `${Math.round(issue.rect.top)}_${Math.round(issue.rect.left)}_${Math.round(issue.rect.width)}_${Math.round(issue.rect.height)}`
+    if (!groups[key]) {
+      groups[key] = {
+        id: key,
+        rect: issue.rect,
+        level: issue.level, // 取最高优先级
+        items: []
+      }
+    }
+    // 如果组内有 high，则整个组标为 high
+    if (issue.level === 'high') groups[key].level = 'high'
+    groups[key].items.push(issue)
+  })
+  const arr = Object.values(groups)
+  // 按面积从大到小排序，确保小方框渲染在后，层级更高（不会被大方框遮挡导致无法选中）
+  return arr.sort((a, b) => (b.rect.width * b.rect.height) - (a.rect.width * a.rect.height))
 })
 
 const extractValue = (desc, isActual) => {
@@ -174,7 +265,6 @@ const goTo = (path) => router.push(path)
   transition: background 0.2s, z-index 0.2s;
 }
 .annotation-box:hover { 
-  z-index: 20; 
   background: rgba(255,255,255,0.25); 
 }
 .annotation-label { position: absolute; top: -24px; left: -2px; padding: 4px 8px; font-size: 13px; font-weight: 600; color: white; border-radius: 4px 4px 4px 0; white-space: nowrap; }
@@ -182,34 +272,40 @@ const goTo = (path) => router.push(path)
 .ann-warning { border-color: #f59e0b; } .ann-warning .annotation-label { background: #f59e0b; }
 
 /* 🌟 悬停高级气泡 (Tooltip Popover) */
-.annotation-popover {
-  position: absolute;
-  bottom: calc(100% + 14px);
-  left: 50%;
-  transform: translateX(-50%) translateY(10px);
-  background: #1a1d2e;
-  padding: 14px 16px;
-  border-radius: 8px;
+.global-annotation-popover {
+  position: fixed;
+  top: 50vh;
+  left: 50vw;
+  transform: translate(-50%, -50%) scale(0.95);
+  background: rgba(26, 29, 46, 0.95);
+  backdrop-filter: blur(12px);
+  padding: 20px 24px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   width: max-content;
-  max-width: 280px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 50px rgba(0,0,0,0.6);
   opacity: 0;
   visibility: hidden;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: none; /* 防止遮挡鼠标导致闪烁 */
+  pointer-events: auto; /* 允许鼠标交互（滚动/点击） */
+  z-index: 2147483647; /* 保证绝对在最上层 */
 }
-.annotation-box:hover .annotation-popover {
+.global-annotation-popover.is-visible {
   opacity: 1;
   visibility: visible;
-  transform: translateX(-50%) translateY(0);
+  transform: translate(-50%, -50%) scale(1);
 }
-.annotation-popover::after {
-  content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-  border-width: 6px; border-style: solid; border-color: #1a1d2e transparent transparent transparent;
-}
+.popover-header { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; font-weight: 600; color: #9ca3af; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-bottom: 12px; }
+.ph-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; color: white; }
+.badge-critical { background: #ef4444; } .badge-warning { background: #f59e0b; }
+
 .popover-title { font-size: 0.95rem; font-weight: 700; color: white; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px;}
 .popover-desc, .popover-sugg { font-size: 0.82rem; color: white; margin-bottom: 6px; line-height: 1.5; white-space: normal;}
 .pop-lbl { color: #9ca3af; font-weight: 600;}
+.mt-border { margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(255,255,255,0.2); }
 
 /* 右侧表格 */
 .sidebar { width: 480px; background: white; border-radius: 12px; border: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);}

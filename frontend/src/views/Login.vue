@@ -50,7 +50,7 @@
         const res = await axios.post('http://localhost:8000/api/login', { username: username.value, password: password.value })
         if (res.data.status === 'success') {
           userStore.login(res.data.data)
-          await showMsg('登录成功', `欢迎回来，${res.data.data.username}`, 'success')
+          // 取消登录成功的弹窗，以免阻塞自动化走查
           router.push('/')
         }
       } catch (err) {
@@ -61,7 +61,7 @@
       try {
         const res = await axios.post('http://localhost:8000/api/register', { username: username.value, password: password.value })
         if (res.data.status === 'success') {
-          await showMsg('注册成功', '已为您自动登录', 'success')
+          // 同样取消注册成功的弹窗阻塞
           const loginRes = await axios.post('http://localhost:8000/api/login', { username: username.value, password: password.value })
           userStore.login(loginRes.data.data)
           router.push('/')

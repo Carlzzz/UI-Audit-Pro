@@ -1,23 +1,106 @@
+from static_scanner import run_static_scan
 import json
 import base64
+import os
 from playwright.async_api import async_playwright
 from ai_service import generate_diagnosis
-from figma_service import fetch_figma_image
+# from figma_service import fetch_figma_image
 from cv_engine import compute_visual_diff
 
 
 # 注意这里新增了 mode 参数
 async def run_audit_task(url: str, config: dict, mode: str):
+    # 🌟 新增：检测是否为本地路径进行静态扫描
+    is_local_file = os.path.exists(url) or url.startswith('/') or (':' in url and not url.startswith('http') and not url.startswith('data'))
+    
+    if is_local_file:
+        print(f"🔍 检测到本地路径，切换至静态扫描模式: {url}")
+        issues = run_static_scan(url, config)
+        # 静态扫描无截图
+        screenshot_base64 = ""
+        
+        # 生成 AI 诊断总结
+        diagnosis = await generate_diagnosis(issues)
+        
+        high_count = len([i for i in issues if i.get('level') == 'high'])
+        medium_count = len([i for i in issues if i.get('level') == 'medium'])
+        low_count = len([i for i in issues if i.get('level') == 'low' or i.get('level') == 'warning'])
+        issue_count = len(issues)
+        
+        score = max(0, 100 - (high_count * 8 + medium_count * 3 + low_count * 1))
+        compliance = max(0, 100 - (high_count * 10 + medium_count * 4 + low_count * 1))
+
+        return {
+            "score": score,
+            "compliance": compliance,
+            "issueCount": issue_count,
+            "issues": issues,
+            "diagnosis": diagnosis,
+            "screenshot": screenshot_base64,
+            "url": url,
+            "mode": "static_scan"
+        }
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         # 强制锁定 1440 视口，保证与设计稿对齐
-        context = await browser.new_context(viewport={'width': 1440, 'height': 1080})
+        context_args = {'viewport': {'width': 1440, 'height': 1080}}
+        
+        # 处理授权注入 (Headers / Cookie)
+        custom_headers = {}
+        if config.get("authHeader"):
+            # 支持直接填入 Bearer xxxx 格式
+            custom_headers["Authorization"] = config.get("authHeader")
+        if config.get("cookieStr"):
+            custom_headers["Cookie"] = config.get("cookieStr")
+            
+        if custom_headers:
+            context_args['extra_http_headers'] = custom_headers
+
+        context = await browser.new_context(**context_args)
+        
+        # 注入 LocalStorage (如果有的话)
+        if config.get("localStorageStr"):
+            try:
+                ls_data = json.loads(config.get("localStorageStr"))
+                js_code = "try {\n"
+                for k, v in ls_data.items():
+                    js_code += f"localStorage.setItem('{k}', '{v}');\n"
+                js_code += "} catch(e) {}"
+                await context.add_init_script(js_code)
+            except Exception as e:
+                print(f"LocalStorage 解析失败: {e}")
+
         page = await context.new_page()
 
         try:
             # 🚨 核心修复 1：把 networkidle 改为 domcontentloaded，防止无休止的等待和跳转销毁上下文
             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
             await page.wait_for_timeout(2000) # 给动态渲染一点时间
+            
+            # === 新增：通用账号密码自动登录逻辑 ===
+            if config.get("loginUser") and config.get("loginPwd"):
+                print("🔄 检测到账号密码配置，尝试执行自动化登录...")
+                try:
+                    # 尝试匹配常见的账号输入框
+                    user_input = page.locator("input[name*='user'], input[name*='account'], input[type='text']").first
+                    if await user_input.count() > 0:
+                        await user_input.fill(config.get("loginUser"))
+                    
+                    # 尝试匹配常见的密码输入框
+                    pwd_input = page.locator("input[type='password']").first
+                    if await pwd_input.count() > 0:
+                        await pwd_input.fill(config.get("loginPwd"))
+                    
+                    # 尝试匹配常见的登录按钮
+                    submit_btn = page.locator("button[type='submit'], button:has-text('登录'), button:has-text('Login'), .login-btn").first
+                    if await submit_btn.count() > 0:
+                        await submit_btn.click()
+                        await page.wait_for_timeout(4000) # 等待登录跳转和渲染完成
+                        print("✅ 自动化登录交互执行完毕")
+                except Exception as le:
+                    print(f"⚠️ 自动化登录失败: {le}")
+                    
         except Exception as e:
             print(f"页面加载超时或跳转(可忽略): {e}")
 
@@ -44,22 +127,41 @@ async def run_audit_task(url: str, config: dict, mode: str):
             await browser.close()
             
             figma_bytes = None
+            uploaded_file = config.get("uploadedFile")
             local_b64 = config.get("localImageBase64")
-            figma_url = config.get("url")
             
             try:
-                # 1. 优先检查：是否有本地上传的 Base64 图片
-                if local_b64:
+                # 1. 优先检查：是否有新版上传的文件
+                if uploaded_file and (uploaded_file.get("file_id") or uploaded_file.get("file_path")):
+                    # 尝试从 file_id 或 file_path 获取文件名
+                    file_name = uploaded_file.get("file_id") or os.path.basename(uploaded_file.get("file_path"))
+                    file_path = os.path.join(os.path.dirname(__file__), "uploads", "designs", file_name)
+                    
+                    print(f"📂 正在加载上传的设计稿: {file_path}")
+                    if not os.path.exists(file_path):
+                        raise FileNotFoundError(f"设计稿文件不存在: {file_path}")
+                    
+                    # 🌟 处理 HTML 设计稿：自动切换到生成的 PNG 进行 CV 对比
+                    if file_path.lower().endswith('.html'):
+                        png_path = file_path + ".png"
+                        if not os.path.exists(png_path):
+                            from utils_html import generate_html_screenshot
+                            print("🔄 正在实时生成 HTML 设计稿截图...")
+                            await generate_html_screenshot(file_path)
+                        file_path = png_path
+                        print(f"🖼️ 使用 HTML 渲染后的截图进行比对: {file_path}")
+                        
+                    with open(file_path, "rb") as f:
+                        figma_bytes = f.read()
+                
+                # 2. 其次检查：旧版 Base64
+                elif local_b64:
                     print("📂 检测到本地上传的设计稿资源，正在解码...")
                     figma_bytes = base64.b64decode(local_b64)
                 
-                # 2. 其次检查：是否有 Figma 链接
-                elif figma_url:
-                    figma_bytes = fetch_figma_image(figma_url)
-                
                 # 3. 都没有则抛出明确错误
                 else:
-                    raise ValueError("未提供 Figma 链接或本地设计稿图片！请在页面中配置资源。")
+                    raise ValueError("未提供设计稿图片资源！请在走查配置页面上传文件。")
 
                 # 启动 CV 引擎比对
                 issues = compute_visual_diff(screenshot_bytes, figma_bytes, config)
@@ -67,10 +169,270 @@ async def run_audit_task(url: str, config: dict, mode: str):
             except Exception as e:
                 issues = [{
                     "id": 999, "title": "设计稿解析失败", "level": "high", "category": "系统报错",
-                    "desc": str(e), "suggestion": "请检查 Figma 链接/Token，或确保本地图片格式正确（支持 PNG/JPG）", 
+                    "desc": str(e), "suggestion": "请重新上传设计稿，并确保图片格式正确（支持 PNG/JPG）", 
                     "rect": {"top": 100, "left": 100, "width": 400, "height": 100}
                 }]
                 
+        # ===============================================
+        # 🟠 模式 C：组件模式 (基于组件级规则库)
+        # ===============================================
+        elif mode == "component":
+            # JS 注入：专门针对组件的走查逻辑 (深度对接 Config 全量规则)
+            js_auditor = """
+(config) => {
+    window.scrollTo(0, 0);
+    const issues = [];
+    let issueId = 1;
+
+    // --- Helper functions ---
+    const parseTokens = (val) => {
+        if (!val) return [];
+        if (Array.isArray(val)) return val.map(v => parseFloat(v)).filter(n => !isNaN(n));
+        if (typeof val === 'string') return val.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+        return [];
+    };
+
+    const hexToRgb = (hex) => {
+        if (!hex) return { r:0, g:0, b:0 };
+        const h = hex.replace('#', '');
+        return { r: parseInt(h.substring(0,2),16)||0, g: parseInt(h.substring(2,4),16)||0, b: parseInt(h.substring(4,6),16)||0 };
+    };
+
+    const colorDist = (a, b) => Math.sqrt(Math.pow(a.r-b.r,2)+Math.pow(a.g-b.g,2)+Math.pow(a.b-b.b,2));
+
+    const parseRgbStr = (s) => {
+        if (!s) return null;
+        const m = s.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
+        return m ? { r:+m[1], g:+m[2], b:+m[3] } : null;
+    };
+
+    const isTransparent = (s) => !s || s === 'rgba(0, 0, 0, 0)' || s === 'transparent';
+
+    const getCls = (el) => {
+        if (!el.className) return '';
+        return (el.className.baseVal != null) ? el.className.baseVal : (typeof el.className === 'string' ? el.className : '');
+    };
+
+    // --- Parse ALL config sections ---
+    const brandColors = (config.brandColors || []).map(c => ({...hexToRgb(c.hex||'#000'), label:c.label||'', hex:c.hex||''}));
+    const neutralColors = (config.neutralColors || []).map(c => ({...hexToRgb(c.hex||'#000'), label:c.label||'', hex:c.hex||''}));
+    const allBrandColors = [...brandColors, ...neutralColors];
+
+    const spacingTokens = parseTokens(config.spacing);
+    const typo = config.typography || {};
+    const allowedFontSizes = parseTokens(typo.sizes);
+    const fontFamilyRaw = typo.family || '';
+    const fontFamilyParts = fontFamilyRaw.toLowerCase().split(',').map(s => s.trim().replace(/['"]/g,''));
+
+    // Button rules (all three types combined)
+    const btns = config.buttons || {};
+    const primaryH = parseTokens((btns.primary||{}).height);
+    const primaryR = parseTokens((btns.primary||{}).radius);
+    const secondaryH = parseTokens((btns.secondary||{}).height);
+    const secondaryR = parseTokens((btns.secondary||{}).radius);
+    const dashedH = parseTokens((btns.dashed||{}).height);
+    const allBtnH = [...new Set([...primaryH,...secondaryH,...dashedH])];
+    const allBtnR = [...new Set([...primaryR,...secondaryR])];
+
+    // Input rules
+    const inps = config.inputs || {};
+    const inputH = parseTokens((inps.text||{}).height);
+    const inputR = parseTokens((inps.text||{}).radius);
+
+    // Display component rules
+    const disp = config.display || {};
+    const navH = parseTokens((disp.nav||{}).height);
+    const paginationH = parseTokens((disp.pagination||{}).height);
+    const tableRowH = parseTokens((disp.table||{}).rowHeight);
+    const tagH = parseTokens((disp.tag||{}).height);
+    const tagR = parseTokens((disp.tag||{}).radius);
+
+    // Feature flags (default true if not explicitly false)
+    const doCheckBtn = config.checkButtonState !== false;
+    const doCheckInp = config.checkInputState !== false;
+    const doCheckTable = config.checkTableAlignment !== false;
+    const doCheckNav = config.checkFormSpacing !== false;
+
+    const seen = new Set();
+
+    const addIssue = (el, title, level, category, desc, suggestion) => {
+        try {
+            const r = el.getBoundingClientRect();
+            if (!r || r.width <= 0 || r.height <= 0) return;
+            issues.push({ id: issueId++, title, level, category, desc, suggestion,
+                rect: { top: r.top+window.scrollY, left: r.left+window.scrollX, width: r.width, height: r.height } });
+        } catch(e) {}
+    };
+
+    const checkBgColor = (el, category, name) => {
+        if (!allBrandColors.length) return;
+        try {
+            const bg = window.getComputedStyle(el).backgroundColor;
+            if (isTransparent(bg)) return;
+            const rgb = parseRgbStr(bg);
+            if (!rgb) return;
+            if (rgb.r > 245 && rgb.g > 245 && rgb.b > 245) return; // skip near-white
+            let nearest = null, nd = 9999;
+            allBrandColors.forEach(c => { const d = colorDist(rgb, c); if (d < nd) { nd=d; nearest=c; } });
+            if (nearest && nd > 5 && nd < 55) {
+                addIssue(el, '品牌色偏离', 'warning', category,
+                    `${name}背景色与规范色 ${nearest.label}(${nearest.hex}) 偏差过大(差值:${Math.round(nd)})`,
+                    `请校准为规范色: ${nearest.label} ${nearest.hex}`);
+            }
+        } catch(e) {}
+    };
+
+    // --- Element selector covering all component types ---
+    const sel = [
+        'button','.ant-btn','.el-button',
+        'input:not([type=radio]):not([type=checkbox]):not([type=file]):not([type=hidden])',
+        'textarea','select','.ant-input','.el-input__inner','.ant-select-selector',
+        'nav','header','.navbar','.ant-menu','.el-menu','.ant-layout-sider',
+        '.ant-pagination','.el-pagination',
+        'table','.ant-table','.el-table__body-wrapper',
+        '.ant-tag','.el-tag',
+        'h1','h2','h3','h4','p','a'
+    ].join(',');
+
+    Array.from(document.querySelectorAll(sel)).forEach(el => {
+        if (seen.has(el)) return;
+        seen.add(el);
+        try {
+            const rect = el.getBoundingClientRect();
+            if (!rect || rect.width <= 2 || rect.height <= 2) return;
+            const h = Math.round(rect.height);
+            const tag = el.tagName.toLowerCase();
+            const cls = getCls(el);
+            const style = window.getComputedStyle(el);
+
+            const isBtn = tag === 'button' || /\\bant-btn\\b|\\bel-button\\b/.test(cls);
+            const isInp = (tag === 'input' && !['radio','checkbox','file','hidden'].includes(el.type))
+                        || tag === 'textarea' || /ant-input|el-input__inner/.test(cls);
+            const isSel = tag === 'select' || /ant-select-selector|el-select/.test(cls);
+            const isNav = tag === 'nav' || tag === 'header'
+                        || /\\bnavbar\\b|\\bant-menu\\b|\\bel-menu\\b|ant-layout-sider/.test(cls);
+            const isPag = /ant-pagination|el-pagination|\\bpagination\\b/.test(cls);
+            const isTbl = tag === 'table' || /\\bant-table\\b|el-table__body-wrapper/.test(cls);
+            const isTagEl = /\\bant-tag\\b|\\bel-tag\\b/.test(cls);
+            const isText = ['h1','h2','h3','h4','p','a'].includes(tag);
+
+            // --- Button checks (all types) ---
+            if (doCheckBtn && isBtn) {
+                if (allBtnH.length && !allBtnH.includes(h))
+                    addIssue(el, '按钮高度异常', 'high', '按钮规范',
+                        `按钮实测高度 ${h}px`, `规范高度: ${allBtnH.join(', ')}px`);
+                const r = parseFloat(style.borderRadius);
+                if (allBtnR.length && !isNaN(r) && r > 0 && !allBtnR.includes(r))
+                    addIssue(el, '按钮圆角异常', 'medium', '按钮规范',
+                        `按钮实测圆角 ${r}px`, `规范圆角: ${allBtnR.join(', ')}px`);
+                checkBgColor(el, '按钮规范', '按钮');
+            }
+
+            // --- Input checks ---
+            if (doCheckInp && isInp) {
+                if (inputH.length && !inputH.includes(h))
+                    addIssue(el, '输入框高度异常', 'high', '表单规范',
+                        `输入框实测高度 ${h}px`, `规范高度: ${inputH.join(', ')}px`);
+                const r = parseFloat(style.borderRadius);
+                if (inputR.length && !isNaN(r) && !inputR.includes(r))
+                    addIssue(el, '输入框圆角异常', 'medium', '表单规范',
+                        `输入框实测圆角 ${r}px`, `规范圆角: ${inputR.join(', ')}px`);
+            }
+
+            // --- Select checks (reuse input height rules) ---
+            if (doCheckInp && isSel) {
+                if (inputH.length && !inputH.includes(h))
+                    addIssue(el, '选择器高度异常', 'high', '表单规范',
+                        `选择器实测高度 ${h}px`, `规范高度: ${inputH.join(', ')}px`);
+            }
+
+            // --- Navbar checks ---
+            if (doCheckNav && isNav) {
+                if (navH.length && !navH.includes(h))
+                    addIssue(el, '导航栏高度异常', 'medium', '导航规范',
+                        `导航栏实测高度 ${h}px`, `规范高度: ${navH.join(', ')}px`);
+            }
+
+            // --- Pagination checks ---
+            if (isPag) {
+                if (paginationH.length && !paginationH.includes(h))
+                    addIssue(el, '分页高度异常', 'medium', '导航规范',
+                        `分页实测高度 ${h}px`, `规范高度: ${paginationH.join(', ')}px`);
+            }
+
+            // --- Table row height checks ---
+            if (doCheckTable && isTbl) {
+                const fr = el.querySelector('tr');
+                if (fr) {
+                    const rowH2 = Math.round(fr.getBoundingClientRect().height);
+                    if (tableRowH.length && !tableRowH.includes(rowH2))
+                        addIssue(el, '表格行高异常', 'low', '展示规范',
+                            `实测行高 ${rowH2}px`, `规范行高: ${tableRowH.join(', ')}px`);
+                }
+            }
+
+            // --- Tag (chip) checks ---
+            if (isTagEl) {
+                if (tagH.length && !tagH.includes(h))
+                    addIssue(el, '标签高度异常', 'low', '展示规范',
+                        `标签实测高度 ${h}px`, `规范高度: ${tagH.join(', ')}px`);
+                const r = parseFloat(style.borderRadius);
+                if (tagR.length && !isNaN(r) && !tagR.includes(r))
+                    addIssue(el, '标签圆角异常', 'low', '展示规范',
+                        `标签实测圆角 ${r}px`, `规范圆角: ${tagR.join(', ')}px`);
+            }
+
+            // --- Typography checks ---
+            if (isText && el.innerText && el.innerText.trim()) {
+                const fs = parseFloat(style.fontSize);
+                if (allowedFontSizes.length && !allowedFontSizes.includes(fs))
+                    addIssue(el, '字号不规范', 'medium', '排版规范',
+                        `实测字号 ${fs}px，不在规范字阶内`, `规范字阶: ${allowedFontSizes.join(', ')}px`);
+                if (fontFamilyParts.length && fontFamilyParts[0]) {
+                    const ff = style.fontFamily.toLowerCase();
+                    if (!fontFamilyParts.some(f => f && ff.includes(f)))
+                        addIssue(el, '字体族不匹配', 'medium', '排版规范',
+                            `实测字体: ${style.fontFamily}`, `规范字体: ${fontFamilyRaw}`);
+                }
+            }
+        } catch(e) {}
+    });
+
+    // --- Form item spacing check ---
+    if (spacingTokens.length) {
+        try {
+            document.querySelectorAll('.ant-form-item,.el-form-item,.form-group,.form-row').forEach(item => {
+                const mb = parseFloat(window.getComputedStyle(item).marginBottom);
+                if (mb > 5 && !spacingTokens.includes(mb)) {
+                    const r = item.getBoundingClientRect();
+                    issues.push({ id: issueId++, title: '表单项间距异常', level: 'medium', category: '间距规范',
+                        desc: `表单项下边距 ${mb}px`, suggestion: `规范间距: ${spacingTokens.join(', ')}px`,
+                        rect: { top: r.top+window.scrollY, left: r.left+window.scrollX, width: r.width, height: r.height } });
+                }
+            });
+        } catch(e) {}
+    }
+
+    
+                // ==========================================
+                // 性能：图片资源大小检测 (通过 performance API)
+                // ==========================================
+                const resources = window.performance.getEntriesByType('resource');
+                resources.forEach(res => {
+                    if ((res.initiatorType === 'img' || res.name.match(/\.(png|jpe?g|webp|gif)/i)) && res.transferSize > 0) {
+                        const sizeKB = res.transferSize / 1024;
+                        if (sizeKB > imgSizeLimitKB) {
+                            issues.push({ id: issueId++, title: "图片体积过大", level: "warning", category: "性能与质量", desc: `图片 ${(res.name||'').split('/').pop().substring(0,20)} 体积 ${sizeKB.toFixed(1)}KB`, suggestion: `限制单张图片最大 ${imgSizeLimitKB}KB`, rect: {top:0,left:0,width:0,height:0} });
+                        }
+                    }
+                });
+
+                return issues;
+            }
+"""
+            issues = await page.evaluate(js_auditor, config)
+            await browser.close()
+            
         # ===============================================
         # 🔵 模式 B：基准值 DOM 走查模式 (JS AST)
         # ===============================================
@@ -81,107 +443,299 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 window.scrollTo(0, 0);
                 const issues = [];
                 let issueId = 1;
-                
-                // 1. 读取前端传入的动态配置 (完美映射新版 UI)
-                const allowedFonts = config.fontTokens && config.fontTokens.length > 0 ? config.fontTokens : [12, 14, 16, 18, 20, 24, 32];
-                const allowedRadius = config.radiusTokens || [2, 4, 8, 12, 16];
+
+                // --- 1. 提取基准值配置 ---
+                const allowedFonts = config.fontTokens || [12, 14, 16, 32];
+                const allowedRadius = config.radiusTokens || [4, 8, 12];
+                const allowedLineHeights = config.lineHeights ? config.lineHeights.split(',').map(s=>parseFloat(s)) : [1.2, 1.5, 1.6];
                 const minClickArea = config.minClickArea || 44;
-                const altCheck = config.altCheck !== false; 
-                const webpCheck = config.webpCheck !== false;
-                const colorTolerance = config.colorTolerance || 15; // 色差容忍阈值
+                const colorTolerance = config.colorTolerance || 2; // ΔE 容差
+                const allowedSpacing = config.spacingTokens || [4, 8, 16];
+                // 动态读取前端配置的栅格倍数（支持数组或逗号分隔的字符串）
+                let allowedGrids = [8]; 
+                if (config.gridTokens) {
+                    if (Array.isArray(config.gridTokens)) allowedGrids = config.gridTokens.map(s => parseFloat(s)).filter(n => !isNaN(n));
+                    else if (typeof config.gridTokens === 'string') allowedGrids = config.gridTokens.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+                }
+                if (allowedGrids.length === 0) allowedGrids = [8]; // 极端情况兜底
+                const allowedTransitions = ['0.2s', '0.3s'];
+                const imgSizeLimitKB = config.imgSizeLimitKB || 44;
                 
-                const brandColors = (config.colors || []).map(c => {
-                    const hex = c.hex.replace('#', '');
+                // 预设 Ant Design 阴影规则
+                const allowedShadows = [
+                    '0px 2px 8px 0px rgba(0, 0, 0, 0.15)', 'none', '0px 0px 0px 0px rgba(0, 0, 0, 0)'
+                ];
+
+                const brandColors = (config.colors || [{hex: '#1A6AFF', label: '主题色'}, {hex: '#47B7FF', label: 'hover色'}, {hex: '#145BD7', label: '点击色'}]).map(c => {
+                    const hex = (c.hex || '').replace('#', '');
                     return {
                         r: parseInt(hex.substring(0, 2), 16) || 0,
                         g: parseInt(hex.substring(2, 4), 16) || 0,
                         b: parseInt(hex.substring(4, 6), 16) || 0,
-                        label: c.label
+                        label: c.label, hex: c.hex
                     };
                 });
-
+                
                 const colorDistance = (rgb1, rgb2) => Math.sqrt(Math.pow(rgb1.r - rgb2.r, 2) + Math.pow(rgb1.g - rgb2.g, 2) + Math.pow(rgb1.b - rgb2.b, 2));
+                const getLuminance = (r, g, b) => {
+                    const a = [r, g, b].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+                    return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+                };
+                const getContrast = (l1, l2) => (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 
-                const els = document.querySelectorAll('button, a, p, h1, h2, h3, img, span, div.card');
+                const els = document.querySelectorAll('*');
+                let lastHeadingLevel = 0;
 
                 Array.from(els).forEach((el) => {
                     const tag = el.tagName.toLowerCase();
+                    if (['script', 'style', 'meta', 'head', 'html', 'body', 'link', 'noscript'].includes(tag)) return;
+                    
                     const style = window.getComputedStyle(el);
-                    
-                    let rect;
-                    if (['h1','h2','h3','p','a','span'].includes(tag) && el.innerText.trim().length > 0) {
-                        const range = document.createRange();
-                        const textNode = Array.from(el.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim().length > 0);
-                        if (textNode) { range.selectNode(textNode); rect = range.getBoundingClientRect(); }
-                        else { rect = el.getBoundingClientRect(); }
-                    } else { rect = el.getBoundingClientRect(); }
-                    
-                    if (!rect || rect.width <= 2 || rect.height <= 2 || rect.width > 900) return;
+                    const rect = el.getBoundingClientRect();
+                    if (!rect || rect.width <= 0 || rect.height <= 0) return;
                     const cords = { top: rect.top + window.scrollY, left: rect.left + window.scrollX, width: rect.width, height: rect.height };
 
-                    // 🔴 检查 1：最小点击热区
-                    if (['button', 'a'].includes(tag)) {
-                        if (rect.width < minClickArea || rect.height < minClickArea) {
-                            issues.push({ id: issueId++, title: "热区过小", level: "high", category: "交互", desc: `实测 ${Math.round(rect.width)}x${Math.round(rect.height)}px`, suggestion: `建议长宽均大于规范的 ${minClickArea}px`, rect: cords });
-                        }
-                    }
+                    const isInteractive = ['button', 'a', 'input', 'select', 'textarea'].includes(tag) || style.cursor === 'pointer';
+                    const hasText = el.innerText && el.innerText.trim().length > 0;
 
-                    // 🔴 检查 2：品牌色近色污染检测
-                    if (config.nearColorCheck && brandColors.length > 0) {
-                        const bgMatch = style.backgroundColor.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
-                        if (bgMatch) {
+                    // ==========================================
+                    // 1. 视觉一致性标准
+                    // ==========================================
+                    
+                    // 1.1 全局色盘
+                    if (brandColors.length > 0) {
+                        const bgMatch = style.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                        if (bgMatch && style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent') {
                             const bgRgb = { r: parseInt(bgMatch[1]), g: parseInt(bgMatch[2]), b: parseInt(bgMatch[3]) };
-                            if (!(bgRgb.r > 250 && bgRgb.g > 250 && bgRgb.b > 250) && bgRgb.r !== 0 && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+                            if (!(bgRgb.r > 245 && bgRgb.g > 245 && bgRgb.b > 245)) {
                                 let nearestDist = 999;
-                                let nearestBrand = null;
                                 brandColors.forEach(bc => {
                                     const dist = colorDistance(bgRgb, bc);
-                                    if (dist < nearestDist) { nearestDist = dist; nearestBrand = bc; }
+                                    if (dist < nearestDist) nearestDist = dist;
                                 });
-                                // 容忍度算法：距离大于容忍阈值，但小于污染极值，视为近色污染
-                                if (nearestDist > colorTolerance && nearestDist < colorTolerance + 50) {
-                                    issues.push({ id: issueId++, title: "品牌色偏离", level: "warning", category: "色彩", desc: `背景色存在细微污染(差值:${Math.round(nearestDist)})`, suggestion: `建议统一替换为: ${nearestBrand.label}`, rect: cords });
+                                // 模拟 Delta E > 容差
+                                if (nearestDist > colorTolerance * 2.5) { 
+                                    issues.push({ id: issueId++, title: "颜色偏离色盘", level: "warning", category: "视觉", desc: `实测颜色: ${style.backgroundColor}`, suggestion: `请校准至标准全局色盘`, rect: cords });
                                 }
                             }
                         }
                     }
 
-                    // 🔴 检查 3：允许的字阶校验
-                    if (['h1', 'h2', 'h3', 'p', 'a', 'button'].includes(tag) && el.innerText.trim().length > 0) {
+                    // 1.2 字体与排版
+                    if (hasText && ['h1','h2','h3','h4','h5','h6','p','span','a','button','div'].includes(tag)) {
+                        const ff = style.fontFamily.toLowerCase();
+                        if (!ff.includes('微软雅黑') && !ff.includes('pingfang sc')) {
+                            issues.push({ id: issueId++, title: "字体族违规", level: "medium", category: "视觉", desc: `实测 ${style.fontFamily}`, suggestion: `须包含 微软雅黑 或 PingFang SC`, rect: cords });
+                        }
+                        
                         const fs = parseFloat(style.fontSize);
-                        if (allowedFonts.length > 0 && !allowedFonts.includes(fs)) {
-                            issues.push({ id: issueId++, title: "字号异常", level: "high", category: "排版", desc: `实测 ${fs}px，不在白名单内`, suggestion: `请修改为字阶 Token: ${allowedFonts.join(', ')}`, rect: cords });
+                        if (!allowedFonts.includes(fs)) {
+                            issues.push({ id: issueId++, title: "字号不在基准值内", level: "medium", category: "视觉", desc: `实测 ${fs}px`, suggestion: `规范字号为: ${allowedFonts.join(', ')}`, rect: cords });
+                        }
+
+                        const lh = parseFloat(style.lineHeight);
+                        if (!isNaN(lh) && fs > 0) {
+                            const ratio = lh / fs;
+                            if (!allowedLineHeights.some(allowed => Math.abs(ratio - allowed) < 0.05)) {
+                                issues.push({ id: issueId++, title: "行高异常", level: "medium", category: "视觉", desc: `倍数 ${ratio.toFixed(2)}`, suggestion: `规范行高为: ${allowedLineHeights.join(', ')}`, rect: cords });
+                            }
+                        }
+
+                        const fw = style.fontWeight;
+                        if (!['400', '600', 'normal', 'bold'].includes(fw)) {
+                            issues.push({ id: issueId++, title: "字重异常", level: "low", category: "视觉", desc: `实测 ${fw}`, suggestion: `规范为 400 或 600`, rect: cords });
                         }
                     }
 
-                    // 🔴 检查 4：无障碍与图片合规
-                    if (tag === 'img') {
-                        if (altCheck && (!el.hasAttribute('alt') || el.getAttribute('alt').trim() === '')) {
-                            issues.push({ id: issueId++, title: "无障碍缺失", level: "high", category: "合规", desc: `Img 缺失 alt 属性`, suggestion: `按 W3C 标准添加替代文本`, rect: cords });
+                    // 1.3 栅格与圆角
+                    const isLayout = el.className && typeof el.className === 'string' && /(row|col|grid|container|wrapper|layout)/i.test(el.className);
+                    if (isLayout) {
+                        const w = Math.round(rect.width);
+                        const isMultiples = (val) => val === 0 || allowedGrids.some(g => val % g === 0);
+                        
+                        // 校验容器宽度
+                        if (w > 0 && !isMultiples(w)) {
+                            issues.push({ id: issueId++, title: "容器宽度未对齐栅格", level: "low", category: "视觉", desc: `实测宽度 ${w}px`, suggestion: `需为 ${allowedGrids.join(' 或 ')} 的倍数`, rect: cords });
                         }
-                        if (webpCheck && el.src) {
-                            const ext = el.src.split('.').pop().toLowerCase();
-                            if (['png', 'jpg', 'jpeg'].includes(ext)) {
-                                issues.push({ id: issueId++, title: "图片未优化", level: "warning", category: "性能", desc: `使用了传统 ${ext} 格式`, suggestion: `建议转换为 WebP 以提升性能`, rect: cords });
+                        
+                        // 校验容器的 margin 和 padding
+                        ['marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight'].forEach(prop => {
+                            const val = parseFloat(style[prop]);
+                            if (!isNaN(val) && val > 0 && !isMultiples(val)) {
+                                issues.push({ id: issueId++, title: `容器 ${prop} 未对齐栅格`, level: "low", category: "视觉", desc: `实测 ${val}px`, suggestion: `需为 ${allowedGrids.join(' 或 ')} 的倍数`, rect: cords });
                             }
+                        });
+                    }
+
+                    const br = parseFloat(style.borderRadius);
+                    if (!isNaN(br) && br > 0 && !allowedRadius.includes(br)) {
+                        issues.push({ id: issueId++, title: "圆角不规范", level: "medium", category: "视觉", desc: `实测 ${br}px`, suggestion: `规范圆角: ${allowedRadius.join(', ')}`, rect: cords });
+                    }
+                    ['marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight'].forEach(prop => {
+                        const val = parseFloat(style[prop]);
+                        if (!isNaN(val) && val > 0 && !allowedSpacing.includes(val)) {
+                            issues.push({ id: issueId++, title: "间距不规范", level: "low", category: "视觉", desc: `实测 ${prop}: ${val}px`, suggestion: `规范间距: ${allowedSpacing.join(', ')}`, rect: cords });
+                        }
+                    });
+
+                    // 1.4 阴影与图标
+                    const shadow = style.boxShadow;
+                    if (shadow && shadow !== 'none' && !allowedShadows.some(s => shadow.includes(s) || s.includes(shadow))) {
+                        if (!shadow.includes('rgba(0, 0, 0, 0.15)')) { // 简易判断 AntD 投影特征
+                            issues.push({ id: issueId++, title: "投影不符合规范", level: "medium", category: "视觉", desc: `实测 ${shadow}`, suggestion: `需符合 Ant Design 投影规范`, rect: cords });
+                        }
+                    }
+
+                    // 1.5 动画与过渡
+                    const transDur = style.transitionDuration;
+                    if (transDur && transDur !== '0s') {
+                        const durs = transDur.split(',').map(s=>s.trim());
+                        if (durs.some(d => !allowedTransitions.includes(d))) {
+                            issues.push({ id: issueId++, title: "动画过渡异常", level: "low", category: "视觉", desc: `实测 ${transDur}`, suggestion: `规范过渡时间: ${allowedTransitions.join(', ')}`, rect: cords });
+                        }
+                    }
+
+                    // ==========================================
+                    // 2. 交互与布局标准
+                    // ==========================================
+                    
+                    // 2.1 交互反馈
+                    if (isInteractive) {
+                        if (rect.width < minClickArea || rect.height < minClickArea) {
+                            issues.push({ id: issueId++, title: "点击热区过小", level: "high", category: "交互", desc: `实测 ${Math.round(rect.width)}x${Math.round(rect.height)}px`, suggestion: `尺寸应 >= ${minClickArea}px`, rect: cords });
+                        }
+                        if (el.disabled || el.classList.contains('disabled')) {
+                            if (style.cursor !== 'not-allowed') {
+                                issues.push({ id: issueId++, title: "禁用状态光标错误", level: "medium", category: "交互", desc: `实测 ${style.cursor}`, suggestion: `应使用 not-allowed`, rect: cords });
+                            }
+                        } else if (style.cursor !== 'pointer' && tag !== 'input' && tag !== 'textarea') {
+                            issues.push({ id: issueId++, title: "可点击元素光标错误", level: "medium", category: "交互", desc: `实测 ${style.cursor}`, suggestion: `应使用 pointer`, rect: cords });
+                        }
+                    }
+
+                    // 2.2 布局控制
+                    if (hasText && style.display === 'block' && (style.width !== 'auto' || style.maxWidth !== 'none')) {
+                        if (style.textOverflow !== 'ellipsis' && el.scrollWidth > el.clientWidth) {
+                            issues.push({ id: issueId++, title: "文本未作省略处理", level: "medium", category: "布局", desc: `文本溢出容器未加 ellipsis`, suggestion: `默认应使用省略号截断`, rect: cords });
+                        }
+                    }
+                    const zi = parseInt(style.zIndex);
+                    if (!isNaN(zi) && zi > 0 && zi < 1000) {
+                        if (el.classList.contains('modal') || el.classList.contains('dropdown') || style.position === 'absolute') {
+                            if (zi < 100) {
+                                issues.push({ id: issueId++, title: "层级过低", level: "warning", category: "布局", desc: `弹窗/下拉菜单 z-index 为 ${zi}`, suggestion: `应置于最高层级防遮挡`, rect: cords });
+                            }
+                        }
+                    }
+
+                    // ==========================================
+                    // 3. 无障碍与合规性
+                    // ==========================================
+                    
+                    // 3.1 色彩对比度
+                    if (hasText) {
+                        const bgMatch = style.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                        const fgMatch = style.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                        if (bgMatch && fgMatch && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+                            const bgLum = getLuminance(parseInt(bgMatch[1]), parseInt(bgMatch[2]), parseInt(bgMatch[3]));
+                            const fgLum = getLuminance(parseInt(fgMatch[1]), parseInt(fgMatch[2]), parseInt(fgMatch[3]));
+                            const ratio = getContrast(bgLum, fgLum);
+                            if (ratio < 4.5) {
+                                issues.push({ id: issueId++, title: "对比度不足", level: "high", category: "无障碍", desc: `实测 ${ratio.toFixed(2)}:1`, suggestion: `AA级标准要求 >= 4.5:1`, rect: cords });
+                            }
+                        }
+                    }
+
+                    // 3.2 图片 Alt
+                    if (tag === 'img') {
+                        if (!el.hasAttribute('alt') || el.getAttribute('alt').trim() === '') {
+                            issues.push({ id: issueId++, title: "缺失 Alt 属性", level: "high", category: "无障碍", desc: `<img> 标签未配置 alt`, suggestion: `强制要求添加替代文本`, rect: cords });
+                        }
+                    }
+
+                    // 3.3 DOM 语义化
+                    const headingMatch = tag.match(/^h([1-6])$/);
+                    if (headingMatch) {
+                        const level = parseInt(headingMatch[1]);
+                        if (lastHeadingLevel > 0 && level - lastHeadingLevel > 1) {
+                            issues.push({ id: issueId++, title: "标题层级跨级", level: "medium", category: "无障碍", desc: `从 H${lastHeadingLevel} 跳到 H${level}`, suggestion: `层级顺序不可跨级`, rect: cords });
+                        }
+                        lastHeadingLevel = level;
+                    }
+                    
+                    // ==========================================
+                    // 4. 性能与内容质量
+                    // ==========================================
+                    
+                    // 4.1 死链扫描
+                    if (tag === 'a' && el.href) {
+                        if (el.href.startsWith('http') && el.href.includes('404')) {
+                            issues.push({ id: issueId++, title: "发现疑似死链", level: "high", category: "质量", desc: `链接包含 404: ${el.href}`, suggestion: `请确保链接可用`, rect: cords });
+                        }
+                    }
+
+                    // 4.2 中英文空格
+                    if (hasText) {
+                        const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+                        let node;
+                        while(node = walk.nextNode()) {
+                            const txt = node.textContent;
+                            if (/[a-zA-Z][\u4e00-\u9fa5]|[\u4e00-\u9fa5][a-zA-Z]/.test(txt)) {
+                                issues.push({ id: issueId++, title: "中英文未加空格", level: "low", category: "质量", desc: `检测到中英文混合无空格`, suggestion: `中英文之间必须加空格`, rect: cords });
+                                break;
+                            }
+                        }
+                    }
+
+                    // 4.3 日期格式
+                    if (hasText) {
+                        const txt = el.innerText;
+                        if (/\d{4}[/\.]\d{1,2}[/\.]\d{1,2}/.test(txt)) {
+                            issues.push({ id: issueId++, title: "日期格式不规范", level: "medium", category: "质量", desc: `检测到非标日期: ${txt.substring(0,15)}`, suggestion: `全局统一为 YYYY-MM-DD`, rect: cords });
+                        }
+                    }
+                });
+
+                
+                // ==========================================
+                // 性能：图片资源大小检测 (通过 performance API)
+                // ==========================================
+                const resources = window.performance.getEntriesByType('resource');
+                resources.forEach(res => {
+                    if ((res.initiatorType === 'img' || res.name.match(/\.(png|jpe?g|webp|gif)/i)) && res.transferSize > 0) {
+                        const sizeKB = res.transferSize / 1024;
+                        if (sizeKB > imgSizeLimitKB) {
+                            issues.push({ id: issueId++, title: "图片体积过大", level: "warning", category: "性能与质量", desc: `图片 ${(res.name||'').split('/').pop().substring(0,20)} 体积 ${sizeKB.toFixed(1)}KB`, suggestion: `限制单张图片最大 ${imgSizeLimitKB}KB`, rect: {top:0,left:0,width:0,height:0} });
                         }
                     }
                 });
 
                 return issues;
             }
-            """
+"""
             issues = await page.evaluate(js_auditor, config)
             await browser.close()
 
         # 生成 AI 诊断总结
         diagnosis = await generate_diagnosis(issues)
+        
+        # 🌟 优化后的加权算分逻辑
+        high_count = len([i for i in issues if i.get('level') == 'high'])
+        medium_count = len([i for i in issues if i.get('level') == 'medium'])
+        low_count = len([i for i in issues if i.get('level') == 'low' or i.get('level') == 'warning'])
         issue_count = len(issues)
-        score = max(0, 100 - (issue_count * 5))
+        
+        # 设计还原度评分 (Restoration Score)
+        # 高优扣8分，中优扣3分，低优扣1分
+        score = max(0, 100 - (high_count * 8 + medium_count * 3 + low_count * 1))
+        
+        # 设计规范符合度 (Compliance Score)
+        # 规范合规对严重违规更敏感：高优扣10分，中优扣4分，低优扣1分
+        compliance = max(0, 100 - (high_count * 10 + medium_count * 4 + low_count * 1))
 
         return {
             "score": score,
-            "compliance": max(0, 100 - (issue_count * 3)),
+            "compliance": compliance,
             "issueCount": issue_count,
             "issues": issues,
             "diagnosis": diagnosis,

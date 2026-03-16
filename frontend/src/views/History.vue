@@ -77,11 +77,12 @@ const formatUrl = (url) => {
 
 const viewReport = (item) => {
   try {
-    const reportData = JSON.parse(item.report_data)
+    const reportData = typeof item.report_data === 'string' ? JSON.parse(item.report_data) : item.report_data
     auditStore.setReportData(reportData)
     router.push('/report')
   } catch (e) {
-    alert('报告数据解析失败，可能已损坏')
+    console.error("View Report Error: ", e)
+    alert('报告数据解析失败，可能已损坏: ' + e.message)
   }
 }
 
