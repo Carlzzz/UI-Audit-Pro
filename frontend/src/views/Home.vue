@@ -143,7 +143,7 @@ const formatUrl = (urlStr) => {
 // 点击历史卡片查看详情
 const viewReport = (item) => {
   try {
-    const reportData = JSON.parse(item.report_data)
+    const reportData = typeof item.report_data === 'string' ? JSON.parse(item.report_data) : item.report_data
     auditStore.setReportData(reportData)
     router.push('/report')
   } catch (e) {

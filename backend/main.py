@@ -124,23 +124,33 @@ async def get_config(user_id: int):
 @app.post("/api/config")
 async def save_config(req: dict):
     user_id = req.get("user_id")
+    # 支持单模式更新或全量更新
     mode = req.get("mode") # baseline, design, component
-    config_data = json.dumps(req.get("config"))
     
     db = get_db()
     cursor = db.cursor()
-    # Check if exists
-    cursor.execute("SELECT 1 FROM user_configs WHERE user_id = ?", (user_id,))
-    exists = cursor.fetchone()
     
-    if exists:
+    # 确保用户记录存在
+    cursor.execute("SELECT 1 FROM user_configs WHERE user_id = ?", (user_id,))
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO user_configs (user_id) VALUES (?)", (user_id,))
+    
+    if mode:
+        # 单模式更新逻辑 (旧逻辑兼容)
         field = f"{mode}_config"
+        config_data = json.dumps(req.get("config"))
         cursor.execute(f"UPDATE user_configs SET {field} = ? WHERE user_id = ?", (config_data, user_id))
     else:
-        # Initialize with nulls
-        cursor.execute("INSERT INTO user_configs (user_id) VALUES (?)", (user_id,))
-        field = f"{mode}_config"
-        cursor.execute(f"UPDATE user_configs SET {field} = ? WHERE user_id = ?", (config_data, user_id))
+        # 全量更新逻辑 (新版 Config.vue 发出的格式)
+        if "baseline_config" in req:
+            cursor.execute("UPDATE user_configs SET baseline_config = ? WHERE user_id = ?", 
+                           (json.dumps(req["baseline_config"]), user_id))
+        if "design_config" in req:
+            cursor.execute("UPDATE user_configs SET design_config = ? WHERE user_id = ?", 
+                           (json.dumps(req["design_config"]), user_id))
+        if "component_config" in req:
+            cursor.execute("UPDATE user_configs SET component_config = ? WHERE user_id = ?", 
+                           (json.dumps(req["component_config"]), user_id))
     
     db.commit()
     db.close()
