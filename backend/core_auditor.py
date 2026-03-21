@@ -191,6 +191,8 @@ async def run_audit_task(url: str, config: dict, mode: str):
         if (typeof val === 'string') return val.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
         return [];
     };
+    const matchesToken = (value, tokens, tolerance = 0.5) =>
+        tokens.some(token => Math.abs(value - token) <= tolerance);
 
     const hexToRgb = (hex) => {
         if (!hex) return { r:0, g:0, b:0 };
@@ -219,6 +221,7 @@ async def run_audit_task(url: str, config: dict, mode: str):
     const allBrandColors = [...brandColors, ...neutralColors];
 
     const spacingTokens = parseTokens(config.spacing);
+    const imgSizeLimitKB = parseFloat(config.imgSizeLimitKB) || 44;
     const typo = config.typography || {};
     const allowedFontSizes = parseTokens(typo.sizes);
     const fontFamilyRaw = typo.family || '';
@@ -318,11 +321,11 @@ async def run_audit_task(url: str, config: dict, mode: str):
 
             // --- Button checks (all types) ---
             if (doCheckBtn && isBtn) {
-                if (allBtnH.length && !allBtnH.includes(h))
+                if (allBtnH.length && !matchesToken(h, allBtnH))
                     addIssue(el, '按钮高度异常', 'high', '按钮规范',
                         `按钮实测高度 ${h}px`, `规范高度: ${allBtnH.join(', ')}px`);
                 const r = parseFloat(style.borderRadius);
-                if (allBtnR.length && !isNaN(r) && r > 0 && !allBtnR.includes(r))
+                if (allBtnR.length && !isNaN(r) && r > 0 && !matchesToken(r, allBtnR))
                     addIssue(el, '按钮圆角异常', 'medium', '按钮规范',
                         `按钮实测圆角 ${r}px`, `规范圆角: ${allBtnR.join(', ')}px`);
                 checkBgColor(el, '按钮规范', '按钮');
@@ -330,32 +333,32 @@ async def run_audit_task(url: str, config: dict, mode: str):
 
             // --- Input checks ---
             if (doCheckInp && isInp) {
-                if (inputH.length && !inputH.includes(h))
+                if (inputH.length && !matchesToken(h, inputH))
                     addIssue(el, '输入框高度异常', 'high', '表单规范',
                         `输入框实测高度 ${h}px`, `规范高度: ${inputH.join(', ')}px`);
                 const r = parseFloat(style.borderRadius);
-                if (inputR.length && !isNaN(r) && !inputR.includes(r))
+                if (inputR.length && !isNaN(r) && !matchesToken(r, inputR))
                     addIssue(el, '输入框圆角异常', 'medium', '表单规范',
                         `输入框实测圆角 ${r}px`, `规范圆角: ${inputR.join(', ')}px`);
             }
 
             // --- Select checks (reuse input height rules) ---
             if (doCheckInp && isSel) {
-                if (inputH.length && !inputH.includes(h))
+                if (inputH.length && !matchesToken(h, inputH))
                     addIssue(el, '选择器高度异常', 'high', '表单规范',
                         `选择器实测高度 ${h}px`, `规范高度: ${inputH.join(', ')}px`);
             }
 
             // --- Navbar checks ---
             if (doCheckNav && isNav) {
-                if (navH.length && !navH.includes(h))
+                if (navH.length && !matchesToken(h, navH))
                     addIssue(el, '导航栏高度异常', 'medium', '导航规范',
                         `导航栏实测高度 ${h}px`, `规范高度: ${navH.join(', ')}px`);
             }
 
             // --- Pagination checks ---
             if (isPag) {
-                if (paginationH.length && !paginationH.includes(h))
+                if (paginationH.length && !matchesToken(h, paginationH))
                     addIssue(el, '分页高度异常', 'medium', '导航规范',
                         `分页实测高度 ${h}px`, `规范高度: ${paginationH.join(', ')}px`);
             }
@@ -365,7 +368,7 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 const fr = el.querySelector('tr');
                 if (fr) {
                     const rowH2 = Math.round(fr.getBoundingClientRect().height);
-                    if (tableRowH.length && !tableRowH.includes(rowH2))
+                    if (tableRowH.length && !matchesToken(rowH2, tableRowH))
                         addIssue(el, '表格行高异常', 'low', '展示规范',
                             `实测行高 ${rowH2}px`, `规范行高: ${tableRowH.join(', ')}px`);
                 }
@@ -373,11 +376,11 @@ async def run_audit_task(url: str, config: dict, mode: str):
 
             // --- Tag (chip) checks ---
             if (isTagEl) {
-                if (tagH.length && !tagH.includes(h))
+                if (tagH.length && !matchesToken(h, tagH))
                     addIssue(el, '标签高度异常', 'low', '展示规范',
                         `标签实测高度 ${h}px`, `规范高度: ${tagH.join(', ')}px`);
                 const r = parseFloat(style.borderRadius);
-                if (tagR.length && !isNaN(r) && !tagR.includes(r))
+                if (tagR.length && !isNaN(r) && !matchesToken(r, tagR))
                     addIssue(el, '标签圆角异常', 'low', '展示规范',
                         `标签实测圆角 ${r}px`, `规范圆角: ${tagR.join(', ')}px`);
             }
@@ -385,7 +388,7 @@ async def run_audit_task(url: str, config: dict, mode: str):
             // --- Typography checks ---
             if (isText && el.innerText && el.innerText.trim()) {
                 const fs = parseFloat(style.fontSize);
-                if (allowedFontSizes.length && !allowedFontSizes.includes(fs))
+                if (allowedFontSizes.length && !matchesToken(fs, allowedFontSizes))
                     addIssue(el, '字号不规范', 'medium', '排版规范',
                         `实测字号 ${fs}px，不在规范字阶内`, `规范字阶: ${allowedFontSizes.join(', ')}px`);
                 if (fontFamilyParts.length && fontFamilyParts[0]) {
@@ -403,7 +406,7 @@ async def run_audit_task(url: str, config: dict, mode: str):
         try {
             document.querySelectorAll('.ant-form-item,.el-form-item,.form-group,.form-row').forEach(item => {
                 const mb = parseFloat(window.getComputedStyle(item).marginBottom);
-                if (mb > 5 && !spacingTokens.includes(mb)) {
+                if (mb > 5 && !matchesToken(mb, spacingTokens)) {
                     const r = item.getBoundingClientRect();
                     issues.push({ id: issueId++, title: '表单项间距异常', level: 'medium', category: '间距规范',
                         desc: `表单项下边距 ${mb}px`, suggestion: `规范间距: ${spacingTokens.join(', ')}px`,
@@ -445,19 +448,28 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 let issueId = 1;
 
                 // --- 1. 提取基准值配置 ---
-                const allowedFonts = config.fontTokens || [12, 14, 16, 32];
-                const allowedRadius = config.radiusTokens || [4, 8, 12];
-                const allowedLineHeights = config.lineHeights ? config.lineHeights.split(',').map(s=>parseFloat(s)) : [1.2, 1.5, 1.6];
+                const parseNumericTokens = (raw, fallback = []) => {
+                    if (Array.isArray(raw)) {
+                        const arr = raw.map(v => parseFloat(v)).filter(n => !isNaN(n));
+                        return arr.length ? arr : fallback;
+                    }
+                    if (typeof raw === 'string') {
+                        const arr = raw.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+                        return arr.length ? arr : fallback;
+                    }
+                    return fallback;
+                };
+                const matchesAnyToken = (val, tokens, tolerance = 0.1) =>
+                    tokens.some(t => Math.abs(val - t) <= tolerance);
+
+                const allowedFonts = parseNumericTokens(config.fontTokens, [12, 14, 16, 32]);
+                const allowedRadius = parseNumericTokens(config.radiusTokens, [4, 8, 12]);
+                const allowedLineHeights = parseNumericTokens(config.lineHeights, [1.2, 1.5, 1.6]);
                 const minClickArea = config.minClickArea || 44;
                 const colorTolerance = config.colorTolerance || 2; // ΔE 容差
-                const allowedSpacing = config.spacingTokens || [4, 8, 16];
+                const allowedSpacing = parseNumericTokens(config.spacingTokens, [4, 8, 16]);
                 // 动态读取前端配置的栅格倍数（支持数组或逗号分隔的字符串）
-                let allowedGrids = [8]; 
-                if (config.gridTokens) {
-                    if (Array.isArray(config.gridTokens)) allowedGrids = config.gridTokens.map(s => parseFloat(s)).filter(n => !isNaN(n));
-                    else if (typeof config.gridTokens === 'string') allowedGrids = config.gridTokens.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
-                }
-                if (allowedGrids.length === 0) allowedGrids = [8]; // 极端情况兜底
+                const allowedGrids = parseNumericTokens(config.gridTokens, [8]);
                 const allowedTransitions = ['0.2s', '0.3s'];
                 const imgSizeLimitKB = config.imgSizeLimitKB || 44;
                 
@@ -529,7 +541,7 @@ async def run_audit_task(url: str, config: dict, mode: str):
                         }
                         
                         const fs = parseFloat(style.fontSize);
-                        if (!allowedFonts.includes(fs)) {
+                        if (!matchesAnyToken(fs, allowedFonts, 0.5)) {
                             issues.push({ id: issueId++, title: "字号不在基准值内", level: "medium", category: "视觉", desc: `实测 ${fs}px`, suggestion: `规范字号为: ${allowedFonts.join(', ')}`, rect: cords });
                         }
 
@@ -568,12 +580,12 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     }
 
                     const br = parseFloat(style.borderRadius);
-                    if (!isNaN(br) && br > 0 && !allowedRadius.includes(br)) {
+                    if (!isNaN(br) && br > 0 && !matchesAnyToken(br, allowedRadius, 0.5)) {
                         issues.push({ id: issueId++, title: "圆角不规范", level: "medium", category: "视觉", desc: `实测 ${br}px`, suggestion: `规范圆角: ${allowedRadius.join(', ')}`, rect: cords });
                     }
                     ['marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight'].forEach(prop => {
                         const val = parseFloat(style[prop]);
-                        if (!isNaN(val) && val > 0 && !allowedSpacing.includes(val)) {
+                        if (!isNaN(val) && val > 0 && !matchesAnyToken(val, allowedSpacing)) {
                             issues.push({ id: issueId++, title: "间距不规范", level: "low", category: "视觉", desc: `实测 ${prop}: ${val}px`, suggestion: `规范间距: ${allowedSpacing.join(', ')}`, rect: cords });
                         }
                     });

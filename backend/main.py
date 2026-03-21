@@ -231,6 +231,10 @@ class AuditReq(BaseModel):
     mode: str
     user_id: Optional[int] = None
 
+class DeleteHistoryReq(BaseModel):
+    user_id: int
+    ids: List[int]
+
 @app.post("/api/audit")
 @app.post("/api/audit/run")
 async def run_audit(req: AuditReq):
@@ -272,6 +276,24 @@ async def get_history(user_id: int):
         item["report_data"] = json.loads(item["report_data"])
         history.append(item)
     return {"status": "success", "data": history}
+
+@app.post("/api/history/delete")
+async def delete_history(req: DeleteHistoryReq):
+    if not req.ids:
+        raise HTTPException(status_code=400, detail="请至少选择一条历史记录")
+
+    db = get_db()
+    cursor = db.cursor()
+    placeholders = ",".join(["?"] * len(req.ids))
+    params = [req.user_id] + req.ids
+    cursor.execute(
+        f"DELETE FROM audit_history WHERE user_id = ? AND id IN ({placeholders})",
+        params
+    )
+    deleted_count = cursor.rowcount
+    db.commit()
+    db.close()
+    return {"status": "success", "deleted_count": deleted_count}
 
 if __name__ == "__main__":
     import uvicorn
