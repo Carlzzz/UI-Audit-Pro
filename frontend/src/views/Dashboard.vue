@@ -3,7 +3,9 @@
     <AppNavbar variant="breadcrumb">
       <template #actions>
         <button class="btn btn-primary" style="margin-right:24px;" @click="goTo('/report')">📄 生成详细报告</button>
-      
+      </template>
+    </AppNavbar>
+
     <!-- 全局悬浮气泡：彻底脱离父级层级限制 -->
     <Teleport to="body">
       <div class="global-annotation-popover" :class="{ 'is-visible': hoveredGroup }" @mouseenter="onPopoverEnter" @mouseleave="onPopoverLeave">
@@ -22,9 +24,6 @@
         </template>
       </div>
     </Teleport>
-
-</template>
-    </AppNavbar>
 
     <div class="dashboard-main">
       <div class="canvas-area">

@@ -78,6 +78,17 @@ const formatUrl = (url) => {
 const viewReport = (item) => {
   try {
     const reportData = typeof item.report_data === 'string' ? JSON.parse(item.report_data) : item.report_data
+
+    // 从历史数据中恢复 checkMode
+    if (reportData.mode) {
+      auditStore.setCheckMode(reportData.mode)
+    } else if (item.mode) {
+      auditStore.setCheckMode(item.mode)
+    } else {
+      // 兜底：如果没有 mode 字段，默认为 baseline
+      auditStore.setCheckMode('baseline')
+    }
+
     auditStore.setReportData(reportData)
     router.push('/report')
   } catch (e) {
