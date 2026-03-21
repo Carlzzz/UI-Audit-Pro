@@ -34,6 +34,38 @@ app.mount("/uploads", StaticFiles(directory=os.path.join(BASE_DIR, "uploads")), 
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".pdf", ".html"}
 
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        avatar TEXT DEFAULT ''
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS user_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER UNIQUE,
+        baseline_config TEXT,
+        design_config TEXT,
+        component_config TEXT
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS audit_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        url TEXT,
+        mode TEXT,
+        score INTEGER,
+        issue_count INTEGER,
+        report_data TEXT,
+        created_at TEXT
+    )""")
+    conn.commit()
+    conn.close()
+    print("Database initialized.")
+
+init_db()
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
