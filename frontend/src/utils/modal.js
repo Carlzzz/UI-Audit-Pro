@@ -16,14 +16,23 @@ export const Swal = SwalBase.mixin({
   allowOutsideClick: false
 })
 
+/** 16×16 面状成功：圆填充 #10C038，对勾白色 stroke 1.2px（与主弹窗栅格左列对齐） */
+const MSG_SUCCESS_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#10C038"/><path d="M4.35 8.05 L6.75 10.45 L11.65 5.15" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`
+
 // 1. 普通提示弹窗 (成功/错误/警告)
 export const showMsg = (title, text = '', icon = 'info') => {
-  return Swal.fire({
+  const opts = {
     title,
     text,
-    icon,
     confirmButtonText: '我知道了'
-  })
+  }
+  if (icon === 'success') {
+    opts.icon = 'success'
+    opts.iconHtml = MSG_SUCCESS_ICON_SVG
+  } else {
+    opts.icon = icon
+  }
+  return Swal.fire(opts)
 }
 
 /** 16×16 面状警告：圆填充 #FF931D，感叹号为白色 */
@@ -54,8 +63,8 @@ export const showPrompt = (title, inputPlaceholder = '') => {
   }).then((res) => (res.isConfirmed ? res.value : null))
 }
 
-/** 20×20 面状成功图标：圆填充 #10C038，对勾为白色 */
-const TOAST_SUCCESS_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="10" fill="#10C038"/><path d="M5.5 10.2l2.5 2.5 5-3.5" stroke="#fff" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`
+/** 20×20 面状成功图标：圆填充 #10C038，对勾白色 1.2px */
+const TOAST_SUCCESS_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="10" fill="#10C038"/><path d="M5.45 10.1 L8.45 13.1 L14.55 6.45" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`
 
 /**
  * 顶部居中成功轻提示：无蒙版、单行 icon + 文案（样式见 main.css .ui-audit-toast--success）

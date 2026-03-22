@@ -1,4 +1,5 @@
 import { showToastInfo } from './modal'
+import { normalizeAsciiPunctuation } from './punctuationNormalize'
 
 /**
  * 规范标签去重：8px / 8 / 8.0px 视为相同；14*14px 与 14 * 14px 视为相同
@@ -71,7 +72,7 @@ export function confirmSpecAddPanel(specFloat, val) {
     specFloat.open = false
     return
   }
-  const next = String(val).trim()
+  const next = normalizeAsciiPunctuation(String(val)).trim()
   if (!next) {
     specFloat.open = false
     return

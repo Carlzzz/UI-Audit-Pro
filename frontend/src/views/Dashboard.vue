@@ -2,7 +2,7 @@
   <div class="dashboard-layout" v-if="reportData">
     <AppNavbar variant="breadcrumb">
       <template #actions>
-        <button class="btn btn-primary" style="margin-right:24px;" @click="goTo('/report')">📄 生成详细报告</button>
+        <button class="btn btn-primary" style="margin-right:24px;" @click="goTo('/report')"><IconStroke name="report" size="sm" stroke-weight="2" /> 生成详细报告</button>
       </template>
     </AppNavbar>
 
@@ -63,27 +63,23 @@
       <div class="sidebar">
         <div class="sidebar-header">
           <div class="sidebar-header-title">属性审计对比列表</div>
-          <div class="sidebar-header-hint">检测到 <strong style="color:#ef4444;">{{ reportData.issueCount || 0 }}</strong> 个不符合规范的属性</div>
+          <div class="sidebar-header-hint">
+            <span>检测到 <strong style="color:#ef4444;">{{ reportData.issueCount || 0 }}</strong> 个不符合规范的属性</span>
+            <FilterSelect
+              v-model="selectedCategory"
+              :options="categoryOptions"
+              menu-label="问题分类"
+              class="dash-category-select"
+            />
+          </div>
         </div>
 
         <div class="sidebar-body">
           <table class="audit-table">
             <thead>
-              <tr><th style="width:25%">审计项</th><th style="width:25%">实测值</th><th style="width:35%">标准值/建议</th><th style="width:15%; text-align:right;">状态</th></tr>
+              <tr><th style="width:25%">审计项</th><th style="width:25%">实测值</th><th style="width:35%">标准值/建议</th><th style="white-space:nowrap; text-align:right;">状态</th></tr>
             </thead>
             <tbody>
-              <tr>
-                <td colspan="4" class="group-title" style="padding-bottom: 5px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>1. 异常诊断列表</span>
-                    <select v-model="selectedCategory" style="padding:4px 8px; border-radius:4px; border:1px solid #e5e7eb; font-size:12px; outline:none; background:#f9fafb; cursor:pointer; color:#4b5563;">
-                      <option value="all">全部问题分类</option>
-                      <option v-for="cat in availableCategories" :key="cat" :value="cat">{{ cat }}</option>
-                    </select>
-                  </div>
-                </td>
-              </tr>
-
               <template v-if="reportData.issues && reportData.issues.length > 0">
                 <tr v-for="issue in filteredTableIssues" :key="issue.id" class="data-row">
                   <td class="attr-name" :title="issue.title">{{ (issue.title || '未知').substring(0,8) }}</td>
@@ -115,9 +111,11 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import AppNavbar from '../components/AppNavbar.vue'
+import IconStroke from '../components/IconStroke.vue'
 import DashboardIssuePopover from '../components/DashboardIssuePopover.vue'
+import FilterSelect from '../components/FilterSelect.vue'
 import { useAuditStore } from '../store/audit'
-import { getIssueUrgency } from '../utils/issueUrgency'
+import { getIssueUrgency, getCategoryType } from '../utils/issueUrgency'
 
 const router = useRouter()
 const auditStore = useAuditStore()
@@ -349,11 +347,13 @@ const onPopoverLeave = () => {
   scheduleClearHover(LEAVE_DELAY_MS)
 }
 
-const availableCategories = computed(() => {
-  if (!reportData || !reportData.issues) return []
-  const cats = new Set(reportData.issues.map(i => i.category || '未分类'))
-  return Array.from(cats)
-})
+const categoryOptions = [
+  { value: 'all', label: '全部分类' },
+  { value: 'visual', label: '视觉一致性' },
+  { value: 'interaction', label: '交互体验' },
+  { value: 'content', label: '文案与话术' },
+  { value: 'functional', label: '功能障碍' }
+]
 
 onMounted(() => {
   if (!reportData) setTimeout(() => router.push('/'), 1500)
@@ -375,7 +375,7 @@ onUnmounted(() => {
 const filteredTableIssues = computed(() => {
   if (!reportData || !reportData.issues) return []
   if (selectedCategory.value === 'all') return reportData.issues
-  return reportData.issues.filter(i => (i.category || '未分类') === selectedCategory.value)
+  return reportData.issues.filter(i => getCategoryType(i.category, i) === selectedCategory.value)
 })
 
 /** 同一框选矩形（rect 一致）下的全部问题，顺序与报告 issues 一致 */
@@ -429,8 +429,8 @@ const goTo = (path) => router.push(path)
 
 <style scoped>
 .dashboard-layout { display: flex; flex-direction: column; padding-top: 60px; height: 100vh; background: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }
-.btn { border: none; cursor: pointer; font-family: inherit; font-weight: 600; transition: background 0.2s; }
-.btn-primary { background: #1A6AFF; color: white; border-radius: 6px; padding: 8px 16px; font-size: 0.85rem; }
+.btn { border: none; cursor: pointer; font-family: inherit; font-weight: 600; transition: background 0.2s; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.btn-primary { background: #1A6AFF; color: white; border-radius: 6px; height: 36px; padding: 0 16px; font-size: 0.85rem; }
 .btn-primary:hover { background: #1557e6; }
 
 .dashboard-main { flex: 1; display: flex; overflow: hidden; padding: 24px; gap: 24px; }
@@ -515,7 +515,7 @@ const goTo = (path) => router.push(path)
 .sidebar { width: 480px; background: white; border-radius: 12px; border: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);}
 .sidebar-header { padding: 24px; border-bottom: 1px solid #e5e7eb; }
 .sidebar-header-title { font-size: 1.2rem; font-weight: 700; color: #1a1d2e; margin-bottom: 8px; }
-.sidebar-header-hint { font-size: 0.85rem; color: #6b7280;}
+.sidebar-header-hint { font-size: 0.85rem; color: #6b7280; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sidebar-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
 
 .audit-table { width: 100%; border-collapse: collapse; table-layout: fixed;}
@@ -538,4 +538,26 @@ const goTo = (path) => router.push(path)
 .fs-title { font-size: 0.9rem; font-weight: 600; color: #1A6AFF; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
 .fs-title span { font-size: 16px; }
 .fs-text { font-size: 0.85rem; color: #4b5563; line-height: 1.6; }
+
+.dash-category-select { width: 110px; min-width: 110px; flex-shrink: 0; }
+.dash-category-select :deep(.filter-select-trigger) {
+  height: 28px;
+  padding: 0 28px 0 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border-color: #e5e7eb;
+  background-color: #f9fafb;
+  color: #4b5563;
+  background-position: right 6px center;
+  background-size: 14px;
+}
+.dash-category-select :deep(.filter-select-menu) {
+  font-size: 12px;
+  border-radius: 6px;
+  min-width: 140px;
+}
+.dash-category-select :deep(.filter-select-option) {
+  padding: 6px 10px;
+  font-size: 12px;
+}
 </style>

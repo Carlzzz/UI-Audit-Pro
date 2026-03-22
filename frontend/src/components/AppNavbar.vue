@@ -39,11 +39,16 @@
       <!-- 用户下拉（非 scan 页面显示） -->
       <div v-if="showUserDropdown" class="user-dropdown-container">
         <div v-if="showDropdown" class="dropdown-overlay" @click.stop="showDropdown = false"></div>
-        <div class="avatar" @click="showDropdown = !showDropdown">
-          {{ userStore.userInfo ? userStore.userInfo.avatar : '未' }}
+        <div
+          class="avatar"
+          :class="{ 'avatar--photo': showPhotoAvatar }"
+          @click="showDropdown = !showDropdown"
+        >
+          <img v-if="showPhotoAvatar" :src="photoAvatarSrc" alt="" class="avatar-img" />
+          <template v-else>{{ letterAvatar }}</template>
         </div>
         <div class="dropdown-menu" v-if="showDropdown">
-          <div class="dropdown-header">你好，{{ userStore.userInfo?.username }}</div>
+          <div class="dropdown-header">你好，{{ userStore.userInfo?.username || '' }}</div>
           <div class="dropdown-item" @click="goTo('/profile')"><IconStroke name="user" size="sm" class="nav-dd-icon" /> 个人信息</div>
           <div class="dropdown-item" @click="goTo('/change-password')"><IconStroke name="lock" size="sm" class="nav-dd-icon" /> 修改密码</div>
           <div class="dropdown-divider"></div>
@@ -55,11 +60,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
 import { showConfirm } from '../utils/modal'
 import IconStroke from './IconStroke.vue'
+import { resolveAvatarDisplayUrl, isPhotoAvatar, letterAvatarText } from '../utils/avatarUrl'
 
 defineProps({
   /** full: 导航链接 | breadcrumb: 面包屑 | simple: 仅 Logo | scan: 扫描页 | custom: 完全自定义中间区 */
@@ -67,7 +73,7 @@ defineProps({
   /** 导航高亮：scan | history | config */
   activeKey: { type: String, default: 'scan' },
   /** 品牌文字 */
-  brandText: { type: String, default: '自动化走查工具' },
+  brandText: { type: String, default: '自动化走查平台' },
   /** 是否显示用户下拉 */
   showUserDropdown: { type: Boolean, default: true },
 })
@@ -75,6 +81,15 @@ defineProps({
 const router = useRouter()
 const userStore = useUserStore()
 const showDropdown = ref(false)
+
+const showPhotoAvatar = computed(() => isPhotoAvatar(userStore.userInfo?.avatar))
+const photoAvatarSrc = computed(() => resolveAvatarDisplayUrl(userStore.userInfo?.avatar))
+const letterAvatar = computed(() =>
+  userStore.userInfo
+    ? letterAvatarText(userStore.userInfo.username, userStore.userInfo.avatar)
+    : '未'
+)
+
 
 const goTo = (path) => router.push(path)
 const handleLogout = async () => {
@@ -196,6 +211,8 @@ const handleLogout = async () => {
   z-index: 20;
 }
 .avatar:hover { opacity: 0.9; }
+.avatar--photo { background: #e5e7eb; color: transparent; font-size: 0; padding: 0; }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
 .dropdown-menu {
   position: absolute;
   right: 0;

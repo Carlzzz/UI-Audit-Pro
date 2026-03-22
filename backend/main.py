@@ -4,7 +4,7 @@ import json
 import base64
 import sqlite3
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Body
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Body, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -27,6 +27,8 @@ app.add_middleware(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads", "designs")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+AVATAR_DIR = os.path.join(BASE_DIR, "uploads", "avatars")
+os.makedirs(AVATAR_DIR, exist_ok=True)
 DB_PATH = os.path.join(BASE_DIR, "audit_system.db")
 
 # 挂载静态文件用于预览
@@ -66,6 +68,21 @@ def init_db():
 
 init_db()
 
+
+def _migrate_users_columns():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    conn.close()
+
+
+_migrate_users_columns()
+
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -85,7 +102,7 @@ async def register(user: UserAuth):
         db.commit()
         return {"status": "success", "message": "注册成功"}
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="用户名已存在")
+        raise HTTPException(status_code=400, detail="该名称已被使用，请换一个")
     finally:
         db.close()
 
@@ -105,7 +122,7 @@ async def login(user: UserAuth):
 async def get_user(user_id: int):
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT id, username, avatar FROM users WHERE id = ?", (user_id,))
+    cursor.execute("SELECT id, username, avatar, display_name FROM users WHERE id = ?", (user_id,))
     row = cursor.fetchone()
     db.close()
     if row:
@@ -115,11 +132,47 @@ async def get_user(user_id: int):
 @app.post("/api/update_password")
 async def update_password(req: dict):
     user_id = req.get("user_id")
+    old_pwd = req.get("old_password")
     new_pwd = req.get("new_password")
+    if not new_pwd:
+        raise HTTPException(status_code=400, detail="新密码不能为空")
     db = get_db()
     cursor = db.cursor()
+    cursor.execute("SELECT password FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if row[0] != old_pwd:
+        db.close()
+        raise HTTPException(status_code=400, detail="原密码错误")
     cursor.execute("UPDATE users SET password = ? WHERE id = ?", (new_pwd, user_id))
     db.commit()
+    db.close()
+    return {"status": "success"}
+
+
+@app.post("/api/update_profile")
+async def update_profile(req: dict):
+    """更新登录账号名称（与「名称」为同一字段），唯一约束"""
+    user_id = req.get("user_id")
+    username = str(req.get("username", "")).strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="账号名称不能为空")
+    if len(username) > 64:
+        raise HTTPException(status_code=400, detail="账号名称过长")
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT id FROM users WHERE username = ? AND id != ?", (username, user_id))
+    if cursor.fetchone():
+        db.close()
+        raise HTTPException(status_code=400, detail="该名称已被使用，请换一个")
+    try:
+        cursor.execute("UPDATE users SET username = ? WHERE id = ?", (username, user_id))
+        db.commit()
+    except sqlite3.IntegrityError:
+        db.close()
+        raise HTTPException(status_code=400, detail="该名称已被使用，请换一个")
     db.close()
     return {"status": "success"}
 
@@ -133,6 +186,35 @@ async def update_avatar(req: dict):
     db.commit()
     db.close()
     return {"status": "success"}
+
+
+@app.post("/api/upload_avatar")
+async def upload_avatar(user_id: int = Form(...), file: UploadFile = File(...)):
+    """上传裁剪后的头像（JPG/PNG），保存为 uploads/avatars/{id}.jpg"""
+    data = await file.read()
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="文件大小不能超过 2MB")
+    if len(data) < 32:
+        raise HTTPException(status_code=400, detail="无效的图片文件")
+    # JPEG / PNG 魔数（前端裁剪后多为 JPEG）
+    is_jpeg = data[:2] == b"\xff\xd8"
+    is_png = data[:8] == b"\x89PNG\r\n\x1a\n"
+    if not is_jpeg and not is_png:
+        raise HTTPException(status_code=400, detail="请上传有效的 JPG 或 PNG 图片")
+
+    suffix = ".png" if is_png else ".jpg"
+    safe_name = f"{int(user_id)}{suffix}"
+    dest = os.path.join(AVATAR_DIR, safe_name)
+    with open(dest, "wb") as f:
+        f.write(data)
+
+    url = f"/uploads/avatars/{safe_name}"
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("UPDATE users SET avatar = ? WHERE id = ?", (url, user_id))
+    db.commit()
+    db.close()
+    return {"status": "success", "avatar_url": url}
 
 # --- 配置管理 ---
 @app.get("/api/config/{user_id}")

@@ -18,6 +18,12 @@ export const useUserStore = defineStore('user', {
         this.userInfo.avatar = newAvatar
         localStorage.setItem('userInfo', JSON.stringify(this.userInfo))
       }
+    },
+    updateUserInfo(partial) {
+      if (this.userInfo && partial && typeof partial === 'object') {
+        Object.assign(this.userInfo, partial)
+        localStorage.setItem('userInfo', JSON.stringify(this.userInfo))
+      }
     }
   }
 })

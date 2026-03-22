@@ -80,9 +80,9 @@ const savePassword = async () => {
 .input-group { margin-bottom: 20px; }
 .input-group label { display: block; font-size: 0.85rem; color: #4b5563; margin-bottom: 8px; font-weight: 600;}
 .pwd-wrap { position: relative; display: flex; align-items: center;}
-.pwd-wrap input { width: 100%; padding: 12px 40px 12px 12px; border: 1px solid #e2e4ec; border-radius: 8px; outline: none; box-sizing: border-box; font-family: inherit;}
+.pwd-wrap input { width: 100%; height: 44px; padding: 0 40px 0 12px; border: 1px solid #e2e4ec; border-radius: 8px; outline: none; box-sizing: border-box; font-family: inherit;}
 .pwd-wrap input:focus { border-color: #1A6AFF; }
 .eye-icon { position: absolute; right: 12px; cursor: pointer; opacity: 0.6; transition: opacity 0.2s;}
 .eye-icon:hover { opacity: 1; }
-.btn-primary { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; background: #1A6AFF; color: white; margin-top: 10px; font-weight: 600;}
+.btn-primary { width: 100%; height: 44px; padding: 0; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; background: #1A6AFF; color: white; margin-top: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; box-sizing: border-box;}
 </style>

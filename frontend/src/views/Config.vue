@@ -118,7 +118,7 @@
                   <div class="toggle" :class="{on: baselineConfig.transitionCheck}"></div>
                 </div>
                 <div class="form-group mt-2">
-                   <input type="text" v-model="baselineConfig.transitions" />
+                   <input type="text" v-model="baselineConfig.transitions" @blur="normBaselineListFields" />
                 </div>
               </div>
 
@@ -165,19 +165,19 @@
                 <h4>字体与排版</h4>
                 <div class="form-group">
                   <label>字体族</label>
-                  <input type="text" v-model="baselineConfig.fontFamily" />
+                  <input type="text" v-model="baselineConfig.fontFamily" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>字体大小</label>
-                  <input type="text" v-model="baselineConfig.fontSizes" />
+                  <input type="text" v-model="baselineConfig.fontSizes" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>行高</label>
-                  <input type="text" v-model="baselineConfig.lineHeights" />
+                  <input type="text" v-model="baselineConfig.lineHeights" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>字重</label>
-                  <input type="text" v-model="baselineConfig.fontWeights" />
+                  <input type="text" v-model="baselineConfig.fontWeights" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>间距规范（px 倍数）</label>
@@ -1077,6 +1077,7 @@ import axios from 'axios'
 import { useUserStore } from '../store/user'
 import { openSpecAddPanel, confirmSpecAddPanel, openColorEditPanel } from '../utils/specModal'
 import { normalizeResponsiveBreakpoints } from '../utils/baselineConfig'
+import { normalizeAsciiPunctuation } from '../utils/punctuationNormalize'
 
 const userStore = useUserStore()
 const activeTab = ref('baseline')
@@ -1249,6 +1250,15 @@ const baselineConfig = reactive(JSON.parse(JSON.stringify(defaultBaseline)))
 const designConfig = reactive(JSON.parse(JSON.stringify(defaultDesign)))
 const componentConfig = reactive(JSON.parse(JSON.stringify(defaultComponent)))
 
+/** 列表类文本：中文输入法全角标点转半角，与走查解析一致 */
+const normBaselineListFields = () => {
+  ;['transitions', 'fontFamily', 'fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
+    if (baselineConfig[k] != null && baselineConfig[k] !== '') {
+      baselineConfig[k] = normalizeAsciiPunctuation(baselineConfig[k])
+    }
+  })
+}
+
 const isDirty = ref(false)
 
 const specFloat = reactive({
@@ -1362,7 +1372,7 @@ const cancelEdit = async () => {
 
 const saveEdit = async () => {
   if (!userStore.userInfo) return Swal.fire('错误', '请先登录', 'error')
-  
+  normBaselineListFields()
   try {
     const res = await axios.post('http://localhost:8000/api/config', {
       user_id: userStore.userInfo.id,
@@ -1396,7 +1406,7 @@ const addColor = (e) => {
 </script>
 
 <style scoped>
-.page-container { background: #f4f6fb; min-height: 100vh; padding-top: 60px; }
+.page-container { background: #f4f6fb; min-height: 100vh; padding-top: 60px; padding-bottom: 0; overflow: hidden; }
 .config-layout { display: flex; max-width: 1440px; margin: 0 auto; height: calc(100vh - 60px); overflow: hidden; }
 .sidebar { width: 260px; background: #fff; padding: 20px; border-right: 1px solid #e2e4ec; overflow-y: auto; flex-shrink: 0; }
 .sidebar-title { font-size: 14px; color: #9ca3af; margin-bottom: 16px; font-weight: bold; }
@@ -1518,7 +1528,7 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .field-hint strong { color: #4b5563; font-weight: 600; }
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; font-size: 13px; color: #4b5563; margin-bottom: 8px; font-weight: 500; }
-.form-group input[type="text"], .form-group input[type="number"], select { width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 6px; outline: none; font-size: 14px; box-sizing: border-box;}
+.form-group input[type="text"], .form-group input[type="number"], select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid #e2e4ec; border-radius: 6px; outline: none; font-size: 14px; box-sizing: border-box;}
 .form-group input:focus, select:focus { border-color: #1A6AFF; }
 .form-group :deep(.filter-select-root) { width: 100%; }
 .form-group :deep(.filter-select-trigger) {
@@ -1550,7 +1560,7 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .color-hex { color: #6b7280; font-size: 13px; font-family: monospace; margin-right: 12px; }
 .btn-del { background: none; border: none; color: #9ca3af; cursor: pointer; }
 .btn-del:hover { color: #ef4444; }
-.btn-add { text-align: center; padding: 10px; border: 1px dashed #d1d5db; border-radius: 6px; color: #6b7280; font-size: 13px; cursor: pointer; }
+.btn-add { text-align: center; height: 36px; display: flex; align-items: center; justify-content: center; padding: 0 12px; border: 1px dashed #d1d5db; border-radius: 6px; color: #6b7280; font-size: 13px; cursor: pointer; box-sizing: border-box; }
 .btn-add:hover { border-color: #1A6AFF; color: #1A6AFF; }
 
 .tags { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1560,9 +1570,9 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .tag-add { border: 1px dashed #d1d5db; color: #6b7280; padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; background: white;}
 .tag-add:hover { border-color: #1A6AFF; color: #1A6AFF; }
 
-.btn-primary { background: #1A6AFF; color: white; border: none; padding: 10px 24px; border-radius: 20px; font-size: 14px; cursor: pointer; font-weight: bold; }
+.btn-primary { background: #1A6AFF; color: white; border: none; height: 40px; padding: 0 24px; border-radius: 20px; font-size: 14px; cursor: pointer; font-weight: bold; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-ghost { background: white; color: #4b5563; border: 1px solid #d1d5db; padding: 10px 24px; border-radius: 20px; font-size: 14px; cursor: pointer; margin-right: 12px; }
+.btn-ghost { background: white; color: #4b5563; border: 1px solid #d1d5db; height: 40px; padding: 0 24px; border-radius: 20px; font-size: 14px; cursor: pointer; margin-right: 12px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
 
 .footer-actions {
   display: flex;
