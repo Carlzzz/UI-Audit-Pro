@@ -116,7 +116,7 @@
                   <div class="toggle" :class="{on: baselineConfig.transitionCheck}"></div>
                 </div>
                 <div class="form-group mt-2">
-                   <input type="text" v-model="baselineConfig.transitions" />
+                   <input type="text" v-model="baselineConfig.transitions" @blur="normBaselineListFields" />
                 </div>
               </div>
 
@@ -163,19 +163,19 @@
                 <h4>字体与排版</h4>
                 <div class="form-group">
                   <label>字体族</label>
-                  <input type="text" v-model="baselineConfig.fontFamily" />
+                  <input type="text" v-model="baselineConfig.fontFamily" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>字体大小</label>
-                  <input type="text" v-model="baselineConfig.fontSizes" />
+                  <input type="text" v-model="baselineConfig.fontSizes" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>行高</label>
-                  <input type="text" v-model="baselineConfig.lineHeights" />
+                  <input type="text" v-model="baselineConfig.lineHeights" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>字重</label>
-                  <input type="text" v-model="baselineConfig.fontWeights" />
+                  <input type="text" v-model="baselineConfig.fontWeights" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>间距规范（px 倍数）</label>
@@ -599,6 +599,7 @@
         <div class="footer-actions footer-actions--fixed" aria-label="走查操作">
           <div class="footer-actions-inner">
             <button type="button" class="btn-ghost" @click="$router.push('/')">取消</button>
+            <button type="button" class="btn-ghost btn-save-session" title="仅保存在本页会话内存，不会写入「规范管理」" @click="saveSessionDraft">保存</button>
             <button type="button" class="btn-primary btn-primary-with-icon" @click="startScan">
               <IconStroke name="bolt" size="sm" strokeWeight="2" class="btn-primary-icon" />
               开启走查
@@ -621,8 +622,9 @@ import SpecAddFloat from '../components/SpecAddFloat.vue'
 import SpecColorFloat from '../components/SpecColorFloat.vue'
 import axios from 'axios'
 import { openSpecAddPanel, confirmSpecAddPanel, openColorEditPanel } from '../utils/specModal'
-import { showToastInfo } from '../utils/modal'
+import { showToastInfo, showToastSuccess } from '../utils/modal'
 import { normalizeResponsiveBreakpoints } from '../utils/baselineConfig'
+import { normalizeAsciiPunctuation } from '../utils/punctuationNormalize'
 
 const router = useRouter()
 const auditStore = useAuditStore()
@@ -825,22 +827,96 @@ onMounted(async () => {
     }
   }
   setTimeout(() => {
-    watch([baselineConfig, designConfig, componentConfig], () => {
+    watch(baselineConfig, () => {
       isDirty.value = true
+      auditStore.clearSessionDraft('baseline')
+    }, { deep: true })
+    watch(componentConfig, () => {
+      isDirty.value = true
+      auditStore.clearSessionDraft('component')
+    }, { deep: true })
+    watch(designConfig, () => {
+      isDirty.value = true
+      auditStore.clearSessionDraft('design')
     }, { deep: true })
   }, 100)
 })
 
-const startScan = () => {
+/** 列表类文本失焦：全角标点转半角，避免中文输入法下的「，」「、」导致解析与走查不一致 */
+const normBaselineListFields = () => {
+  ;['transitions', 'fontFamily', 'fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
+    if (baselineConfig[k] != null && baselineConfig[k] !== '') {
+      baselineConfig[k] = normalizeAsciiPunctuation(baselineConfig[k])
+    }
+  })
+}
+
+const normComponentTypographyFields = () => {
+  const t = componentConfig.typography
+  if (!t || typeof t !== 'object') return
+  ;['family', 'sizes', 'lineHeights', 'weights'].forEach((k) => {
+    if (t[k] != null && t[k] !== '') t[k] = normalizeAsciiPunctuation(t[k])
+  })
+}
+
+/**
+ * 仅作用于深拷贝后的纯对象，不触碰页面上的 reactive 配置。
+ * 若在「保存 / 构建走查配置」里原地改 baselineConfig，会触发 watch → clearSessionDraft，
+ * 可能在 setSessionDraft 之后清空会话快照，导致开启走查仍用旧逻辑或 draft 丢失。
+ */
+const normalizeBaselineStringsOnPlain = (obj) => {
+  if (!obj || typeof obj !== 'object') return
+  ;['transitions', 'fontFamily', 'fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
+    if (obj[k] != null && obj[k] !== '') obj[k] = normalizeAsciiPunctuation(obj[k])
+  })
+}
+
+const normalizeComponentTypographyOnPlain = (obj) => {
+  const t = obj?.typography
+  if (!t || typeof t !== 'object') return
+  ;['family', 'sizes', 'lineHeights', 'weights'].forEach((k) => {
+    if (t[k] != null && t[k] !== '') t[k] = normalizeAsciiPunctuation(t[k])
+  })
+}
+
+/** 与开启走查、保存会话共用：当前 Tab 对应的模式键 */
+const getSessionModeKey = () => {
+  if (activeTab.value === 'baseline') return 'baseline'
+  if (activeTab.value.startsWith('comp_')) return 'component'
+  return 'design'
+}
+
+/** 序列化当前表单为本次走查配置（深拷贝；不修改 reactive，避免 watch 清空 sessionDraft） */
+const buildConfigSnapshotForScan = () => {
   if (activeTab.value === 'baseline') {
-    auditStore.setTaskConfig(baselineConfig)
-  } else if (activeTab.value.startsWith('comp_')) {
-    auditStore.setTaskConfig(componentConfig)
+    const snap = JSON.parse(JSON.stringify(baselineConfig))
+    normalizeBaselineStringsOnPlain(snap)
+    return snap
+  }
+  if (activeTab.value.startsWith('comp_')) {
+    const snap = JSON.parse(JSON.stringify(componentConfig))
+    normalizeComponentTypographyOnPlain(snap)
+    return snap
+  }
+  return JSON.parse(JSON.stringify(designConfig))
+}
+
+/** 保存到会话内存：不写规则管理 API；开启走查将优先使用此次快照（改表单后会自动作废） */
+const saveSessionDraft = () => {
+  const modeKey = getSessionModeKey()
+  const snap = buildConfigSnapshotForScan()
+  auditStore.setSessionDraft(modeKey, snap)
+  showToastSuccess('已保存到本次走查会话（未写入规范管理）')
+}
+
+const startScan = () => {
+  const modeKey = getSessionModeKey()
+  const draft = auditStore.sessionDraft[modeKey]
+  const cfg = draft != null ? JSON.parse(JSON.stringify(draft)) : buildConfigSnapshotForScan()
+  auditStore.setTaskConfig(cfg)
+  if (activeTab.value.startsWith('comp_')) {
     auditStore.setCheckMode('component')
   } else {
-    auditStore.setTaskConfig(designConfig)
-  }
-  if (!activeTab.value.startsWith('comp_')) {
     auditStore.setCheckMode(activeTab.value)
   }
   router.push('/scan')
@@ -1068,7 +1144,7 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .field-hint strong { color: #4b5563; font-weight: 600; }
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; font-size: 13px; color: #4b5563; margin-bottom: 8px; font-weight: 500; }
-.form-group input[type="text"], .form-group input[type="number"], select { width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 8px; outline: none; font-size: 14px; box-sizing: border-box;}
+.form-group input[type="text"], .form-group input[type="number"], select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid #e2e4ec; border-radius: 8px; outline: none; font-size: 14px; box-sizing: border-box;}
 .form-group input:focus, select:focus { border-color: #1A6AFF; }
 .input-with-unit { display: flex; align-items: center; background: #fff; border: 1px solid #e2e4ec; border-radius: 8px; overflow: hidden; }
 .input-with-unit input { border: none; flex: 1; border-radius: 0; }
@@ -1089,7 +1165,7 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .color-hex { color: #6b7280; font-size: 13px; font-family: monospace; margin-right: 12px; }
 .btn-del { background: none; border: none; color: #9ca3af; cursor: pointer; }
 .btn-del:hover { color: #ef4444; }
-.btn-add { text-align: center; padding: 10px; border: 1px dashed rgba(209, 213, 219, 0.9); border-radius: 12px; color: #6b7280; font-size: 13px; cursor: pointer; background: rgba(255, 255, 255, 0.6); }
+.btn-add { text-align: center; height: 36px; display: flex; align-items: center; justify-content: center; padding: 0 12px; border: 1px dashed rgba(209, 213, 219, 0.9); border-radius: 12px; color: #6b7280; font-size: 13px; cursor: pointer; background: rgba(255, 255, 255, 0.6); box-sizing: border-box; }
 .btn-add:hover { border-color: #1A6AFF; color: #1A6AFF; }
 
 .tags { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1099,10 +1175,12 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .tag-add { border: 1px dashed rgba(209, 213, 219, 0.9); color: #6b7280; padding: 4px 10px; border-radius: 10px; font-size: 12px; cursor: pointer; background: rgba(255, 255, 255, 0.7);}
 .tag-add:hover { border-color: #1A6AFF; color: #1A6AFF; }
 
-.btn-primary { background: #1A6AFF; color: white; border: none; padding: 10px 24px; border-radius: 20px; font-size: 14px; cursor: pointer; font-weight: bold; }
+.btn-primary { background: #1A6AFF; color: white; border: none; height: 40px; padding: 0 24px; border-radius: 20px; font-size: 14px; cursor: pointer; font-weight: bold; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .btn-primary-with-icon { display: inline-flex; align-items: center; gap: 6px; }
 .btn-primary-icon { flex-shrink: 0; }
-.btn-ghost { background: white; color: #4b5563; border: 1px solid #d1d5db; padding: 10px 24px; border-radius: 20px; font-size: 14px; cursor: pointer; }
+.btn-ghost { background: white; color: #4b5563; border: 1px solid #d1d5db; height: 40px; padding: 0 24px; border-radius: 20px; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.btn-save-session { border-color: #c7d2fe; color: #1A6AFF; font-weight: 600; }
+.btn-save-session:hover { background: #f5f7ff; border-color: #1A6AFF; }
 
 .footer-actions.footer-actions--fixed {
   position: fixed;

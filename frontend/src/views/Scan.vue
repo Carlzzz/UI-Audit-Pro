@@ -113,11 +113,17 @@
     }, 300)
   
     try {
+    const cfg = auditStore.taskConfig
+    if (!cfg || typeof cfg !== 'object') {
+      clearInterval(timer)
+      alert('走查配置缺失，请返回「新建走查」页面完成规则设置后再开启走查。')
+      router.push('/audit-setup')
+      return
+    }
     const res = await axios.post('http://localhost:8000/api/audit', {
       url: auditStore.targetUrl,
       mode: auditStore.checkMode,
-      // ⚠️ 极其关键：改为读取 taskConfig，不再使用 designConfig
-      config: auditStore.taskConfig, 
+      config: JSON.parse(JSON.stringify(cfg)),
       user_id: useUserStore().userInfo.id
     })
   

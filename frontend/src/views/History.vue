@@ -62,7 +62,8 @@
         <div v-else class="project-grid">
           <div class="project-card" v-for="item in filteredHistoryList" :key="item.id">
             <div class="project-card-main" @click="viewReport(item)">
-            <div class="project-thumb" style="background: linear-gradient(135deg, #e8ecf5, #d4daea)">
+            <div class="project-thumb">
+               <div class="thumb-glow"></div>
                <div class="score-display">{{ item.score || 0 }}<span style="font-size:1.2rem;">%</span></div>
                <span class="mode-badge">{{ modeLabel(item.mode) }}</span>
             </div>
@@ -99,6 +100,7 @@ import { useRouter } from 'vue-router'
 import AppNavbar from '../components/AppNavbar.vue'
 import IconStroke from '../components/IconStroke.vue'
 import FilterSelect from '../components/FilterSelect.vue'
+import { getCategoryType } from '../utils/issueUrgency'
 import { useUserStore } from '../store/user'
 import { useAuditStore } from '../store/audit'
 import { showConfirm } from '../utils/modal'
@@ -127,7 +129,8 @@ const appliedFilters = ref({
 
 const issueTypeMapping = {
   visual: ['视觉', '排版规范', '按钮规范', '表单规范', '导航规范', '展示规范', '间距规范', '像素级对比'],
-  interaction: ['交互', '布局', '无障碍'],
+  interaction: ['交互', '无障碍'],
+  functional: ['布局', '系统报错', '功能障碍', '响应式', '死链', '空状态', '加载状态'],
   content: ['质量', '性能与质量', '文案', '话术']
 }
 
@@ -142,7 +145,8 @@ const issueTypeFilterOptions = [
   { value: 'all', label: '全部问题类型' },
   { value: 'visual', label: '视觉一致性' },
   { value: 'interaction', label: '交互体验' },
-  { value: 'content', label: '文案与话术' }
+  { value: 'content', label: '文案与话术' },
+  { value: 'functional', label: '功能障碍' }
 ]
 
 onMounted(async () => {
@@ -164,14 +168,6 @@ onMounted(async () => {
   }
 })
 
-const getCategoryType = (category) => {
-  if (!category) return 'visual'
-  for (const [type, keywords] of Object.entries(issueTypeMapping)) {
-    if (keywords.some(kw => String(category).includes(kw))) return type
-  }
-  return 'visual'
-}
-
 const getItemIssueTypes = (item) => {
   let report = item.report_data
   if (typeof item.report_data === 'string') {
@@ -183,7 +179,7 @@ const getItemIssueTypes = (item) => {
   }
   const issues = Array.isArray(report?.issues) ? report.issues : []
   const typeSet = new Set()
-  issues.forEach(issue => typeSet.add(getCategoryType(issue.category)))
+  issues.forEach(issue => typeSet.add(getCategoryType(issue.category, issue)))
   if (typeSet.size === 0) typeSet.add('visual')
   return Array.from(typeSet)
 }
@@ -192,7 +188,8 @@ const issueTypeLabel = (type) => {
   const map = {
     visual: '视觉一致性',
     interaction: '交互体验',
-    content: '文案与话术'
+    content: '文案与话术',
+    functional: '功能障碍'
   }
   return map[type] || type
 }
@@ -413,9 +410,40 @@ const goTo = (path) => router.push(path)
 .card-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .project-time-icon { color: #9ca3af; margin-right: 4px; vertical-align: middle; }
 
-.project-thumb { height: 150px; position: relative; display: flex; align-items: center; justify-content: center; }
-.score-display { font-size: 3rem; font-weight: 900; color: #1A6AFF; text-shadow: 0 4px 12px rgba(26, 106, 255,0.15); }
-.mode-badge { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.4); color: white; font-size: 0.7rem; padding: 3px 8px; border-radius: 4px; font-weight: 600; }
+.project-thumb {
+  height: 150px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: linear-gradient(160deg, #eef2fb 0%, #e4e9f7 40%, #dde4f5 70%, #e8e4f3 100%);
+}
+.thumb-glow {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(100, 100, 255, 0.30) 0%, rgba(130, 120, 255, 0.18) 40%, transparent 70%);
+  filter: blur(20px);
+  pointer-events: none;
+  transition: transform 0.4s ease, opacity 0.3s ease;
+}
+.project-card:hover .thumb-glow { transform: scale(1.25); opacity: 0.85; }
+.score-display { position: relative; z-index: 1; font-size: 3rem; font-weight: 900; color: #1A6AFF; text-shadow: 0 4px 12px rgba(26, 106, 255,0.15); }
+.mode-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  background: linear-gradient(135deg, #1A6AFF 0%, #4f6fff 100%);
+  color: white;
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(26, 106, 255, 0.25);
+}
 
 .project-info { padding: 18px; }
 .project-name { font-size: 1rem; font-weight: 600; color: #1a1d2e; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -426,7 +454,7 @@ const goTo = (path) => router.push(path)
 
 .state-container { text-align: center; padding: 80px 0; color: #9ca3af; }
 .empty-state { background: white; border-radius: 12px; border: 1px dashed #e5e7eb; }
-.btn { border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-family: inherit; }
+.btn { border: none; height: 36px; padding: 0 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-family: inherit; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .btn-primary { background: #1A6AFF; color: white; }
 .btn-primary:hover { background: #1557e6; }
 .btn-light { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }

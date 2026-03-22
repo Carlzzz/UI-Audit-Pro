@@ -4,6 +4,7 @@ import base64
 import os
 from playwright.async_api import async_playwright
 from ai_service import generate_diagnosis
+from restoration_scoring import compute_restoration_score
 # from figma_service import fetch_figma_image
 from cv_engine import compute_visual_diff
 
@@ -11,51 +12,37 @@ from cv_engine import compute_visual_diff
 def _non_empty_list(v) -> bool:
     return isinstance(v, list) and len(v) > 0
 
-
 def _merge_baseline_token_lists(config: dict, camel: str, snake: str) -> None:
-    """camel 与 snake 同时存在时合并去重；camel 为空列表时采用 snake，避免默认 spacingTokens 盖住已保存的 spacing_tokens。"""
-    if not isinstance(config, dict):
-        return
-    a = config.get(camel)
-    b = config.get(snake)
-    if not _non_empty_list(b):
-        return
-    if not _non_empty_list(a):
-        config[camel] = list(b)
-        return
-    seen = set()
-    out = []
-    for x in a + b:
-        if x is None:
-            continue
-        k = str(x).strip()
-        if not k or k in seen:
-            continue
-        seen.add(k)
-        out.append(x)
-    config[camel] = out
-
+    pass
 
 def _normalize_baseline_config_keys(config: dict) -> None:
-    """前端或存储层可能使用 snake_case；走查脚本与前端字段对齐为 camelCase。"""
-    if not isinstance(config, dict):
-        return
-    for camel, snake in (
-        ("spacingTokens", "spacing_tokens"),
-        ("gridTokens", "grid_tokens"),
-        ("radiusTokens", "radius_tokens"),
-        ("buttonHeightTokens", "button_height_tokens"),
-        ("inputHeightTokens", "input_height_tokens"),
-        ("buttonHeightCheck", "button_height_check"),
-        ("inputSelectHeightCheck", "input_select_height_check"),
-        ("gridCheck", "grid_check"),
-        ("radiusCheck", "radius_check"),
-    ):
-        if snake in config and camel not in config:
-            config[camel] = config[snake]
-    _merge_baseline_token_lists(config, "spacingTokens", "spacing_tokens")
-    _merge_baseline_token_lists(config, "gridTokens", "grid_tokens")
-    _merge_baseline_token_lists(config, "radiusTokens", "radius_tokens")
+    pass
+
+
+def _parse_issues_eval_result(raw):
+    """page.evaluate 返回 issues 数组或 { issues, checkItemTotal }。"""
+    if isinstance(raw, dict) and "issues" in raw:
+        tot = raw.get("checkItemTotal", raw.get("check_item_total"))
+        try:
+            t = int(tot) if tot is not None else 0
+        except (TypeError, ValueError):
+            t = 0
+        return raw["issues"], t
+    if isinstance(raw, list):
+        return raw, 0
+    return [], 0
+
+
+def _static_file_line_count(path: str) -> int:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return max(1, sum(1 for _ in f))
+    except Exception:
+        try:
+            with open(path, "r", encoding="gbk", errors="ignore") as f:
+                return max(1, sum(1 for _ in f))
+        except Exception:
+            return 120
 
 
 # 注意这里新增了 mode 参数
@@ -63,33 +50,15 @@ async def run_audit_task(url: str, config: dict, mode: str):
     # 🌟 新增：检测是否为本地路径进行静态扫描
     is_local_file = os.path.exists(url) or url.startswith('/') or (':' in url and not url.startswith('http') and not url.startswith('data'))
     
+    static_issues = []
     if is_local_file:
-        print(f"🔍 检测到本地路径，切换至静态扫描模式: {url}")
-        issues = run_static_scan(url, config)
-        # 静态扫描无截图
-        screenshot_base64 = ""
-        
-        # 生成 AI 诊断总结
-        diagnosis = await generate_diagnosis(issues)
-        
-        high_count = len([i for i in issues if i.get('level') == 'high'])
-        medium_count = len([i for i in issues if i.get('level') == 'medium'])
-        low_count = len([i for i in issues if i.get('level') == 'low' or i.get('level') == 'warning'])
-        issue_count = len(issues)
-        
-        score = max(0, 100 - (high_count * 8 + medium_count * 3 + low_count * 1))
-        compliance = max(0, 100 - (high_count * 10 + medium_count * 4 + low_count * 1))
-
-        return {
-            "score": score,
-            "compliance": compliance,
-            "issueCount": issue_count,
-            "issues": issues,
-            "diagnosis": diagnosis,
-            "screenshot": screenshot_base64,
-            "url": url,
-            "mode": "static_scan"
-        }
+        print(f"🔍 检测到本地路径，将同时执行静态扫描与 DOM 走查: {url}")
+        file_path = url.replace('file://', '') if url.startswith('file://') else url
+        if os.path.isfile(file_path):
+            static_issues = run_static_scan(file_path, config)
+            
+        if not url.startswith('file://') and not url.startswith('http'):
+            url = f"file://{os.path.abspath(url)}"
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -170,6 +139,8 @@ async def run_audit_task(url: str, config: dict, mode: str):
         screenshot_bytes = await page.screenshot(type='png', full_page=True)
         screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
 
+        check_item_total = 0
+
         # ===============================================
         # 🟢 模式 A：设计稿像素级对比模式 (OpenCV)
         # ===============================================
@@ -222,7 +193,8 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     "desc": str(e), "suggestion": "请重新上传设计稿，并确保图片格式正确（支持 PNG/JPG）", 
                     "rect": {"top": 100, "left": 100, "width": 400, "height": 100}
                 }]
-                
+            check_item_total = max(400, 120 * (1 + len(issues)))
+
         # ===============================================
         # 🟠 模式 C：组件模式 (基于组件级规则库)
         # ===============================================
@@ -485,23 +457,30 @@ async def run_audit_task(url: str, config: dict, mode: str):
 
     
                 // ==========================================
-                // 性能：图片资源大小检测 (通过 performance API)
+                // 性能：图片资源大小（归入功能障碍：影响加载与体验）
                 // ==========================================
                 const resources = window.performance.getEntriesByType('resource');
                 resources.forEach(res => {
                     if ((res.initiatorType === 'img' || res.name.match(/\.(png|jpe?g|webp|gif)/i)) && res.transferSize > 0) {
                         const sizeKB = res.transferSize / 1024;
                         if (sizeKB > imgSizeLimitKB) {
-                            issues.push({ id: issueId++, title: "图片体积过大", level: "warning", category: "性能与质量", desc: `图片 ${(res.name||'').split('/').pop().substring(0,20)} 体积 ${sizeKB.toFixed(1)}KB`, suggestion: `限制单张图片最大 ${imgSizeLimitKB}KB`, rect: {top:0,left:0,width:0,height:0} });
+                            issues.push({ id: issueId++, title: "图片体积过大", level: "warning", category: "功能障碍", desc: `图片 ${(res.name||'').split('/').pop().substring(0,20)} 体积 ${sizeKB.toFixed(1)}KB`, suggestion: `限制单张图片最大 ${imgSizeLimitKB}KB`, rect: {top:0,left:0,width:0,height:0} });
                         }
                     }
                 });
 
-                return issues;
+                const checkItemTotal = Math.max(1, Array.from(document.querySelectorAll('*')).filter(el => {
+                    const tag = el.tagName.toLowerCase();
+                    if (['script', 'style', 'meta', 'head', 'html', 'body', 'link', 'noscript'].includes(tag)) return false;
+                    const rect = el.getBoundingClientRect();
+                    return rect && rect.width > 0 && rect.height > 0;
+                }).length);
+                return { issues, checkItemTotal };
             }
 """
-            issues = await page.evaluate(js_auditor, config)
+            raw_eval = await page.evaluate(js_auditor, config)
             await browser.close()
+            issues, check_item_total = _parse_issues_eval_result(raw_eval)
             
         # ===============================================
         # 🔵 模式 B：基准值 DOM 走查模式 (JS AST)
@@ -554,10 +533,37 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     });
                 };
 
-                const allowedFonts = parseNumericTokens(config.fontTokens || config.fontSizes, [12, 14, 16, 32]);
+                const allowedFonts = parseNumericTokens(config.fontSizes || config.fontTokens, [12, 14, 16, 32]);
                 const allowedLineHeights = parseNumericTokens(config.lineHeights, [1.2, 1.5, 1.6]);
+
+                const parseFontWeights = (raw) => {
+                    if (Array.isArray(raw)) return raw.map(String).map(s => s.trim()).filter(Boolean);
+                    if (typeof raw === 'string' && raw.trim()) return raw.split(',').map(s => s.trim()).filter(Boolean);
+                    return ['400', '600'];
+                };
+                const allowedWeights = parseFontWeights(config.fontWeights);
+                const weightAliases = { 'normal': '400', 'bold': '700' };
+                const normalizeWeight = (w) => weightAliases[w] || w;
+                const isWeightAllowed = (w) => {
+                    const nw = normalizeWeight(w);
+                    return allowedWeights.some(aw => normalizeWeight(aw) === nw);
+                };
+
+                const parseFontFamilies = (raw) => {
+                    if (typeof raw === 'string' && raw.trim()) return raw.split(',').map(s => s.trim().replace(/['"]/g, '').toLowerCase()).filter(Boolean);
+                    return ['微软雅黑', 'pingfang sc'];
+                };
+                const allowedFamilies = parseFontFamilies(config.fontFamily);
                 const minClickArea = config.minClickArea || 44;
-                const colorTolerance = config.colorTolerance || 2; // ΔE 容差
+                const coerceColorTolerance = (val) => {
+                    if (typeof val === 'number') return val;
+                    if (typeof val === 'string') {
+                        const m = val.match(/\d+(\.\d+)?/);
+                        if (m) return parseFloat(m[0]);
+                    }
+                    return 2;
+                };
+                const colorTolerance = coerceColorTolerance(config.colorTolerance || config.colorThreshold); // ΔE 容差
                 let allowedSpacing = parsePxTokenList(config.spacingTokens);
                 if (!allowedSpacing.length) allowedSpacing = [4, 8, 16];
                 console.log('[UI-Audit] allowedSpacing resolved to:', JSON.stringify(allowedSpacing), 'from config.spacingTokens:', JSON.stringify(config.spacingTokens));
@@ -582,10 +588,11 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 const inpHeightList = parseNumericTokens(config.inputHeightTokens, []);
                 const imgSizeLimitKB = config.imgSizeLimitKB || 44;
                 
-                // 预设 Ant Design 阴影规则
-                const allowedShadows = [
-                    '0px 2px 8px 0px rgba(0, 0, 0, 0.15)', 'none', '0px 0px 0px 0px rgba(0, 0, 0, 0)'
-                ];
+                // 预设阴影规则
+                const isMaterial = (config.shadowPreset || '').includes('Material');
+                const allowedShadows = isMaterial 
+                    ? ['0px 2px 1px -1px rgba(0,0,0,0.2)', '0px 3px 3px 0px rgba(0,0,0,0.14)', 'none', '0px 0px 0px 0px rgba(0, 0, 0, 0)']
+                    : ['0px 2px 8px 0px rgba(0, 0, 0, 0.15)', 'none', '0px 0px 0px 0px rgba(0, 0, 0, 0)'];
 
                 const brandColors = (config.colors || [{hex: '#1A6AFF', label: '主题色'}, {hex: '#47B7FF', label: 'hover色'}, {hex: '#145BD7', label: '点击色'}]).map(c => {
                     const hex = (c.hex || '').replace('#', '');
@@ -623,8 +630,8 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     const cords = { top: rect.top + window.scrollY, left: rect.left + window.scrollX, width: rect.width, height: rect.height };
 
                     const svgInnerTags = ['svg','path','line','circle','rect','g','polyline','polygon','ellipse','use','defs','clippath','mask','symbol','text','tspan'];
-                    const isInteractive = ['button', 'a', 'input', 'select', 'textarea'].includes(tag) ||
-                        (style.cursor === 'pointer' && !svgInnerTags.includes(tag) && !el.closest('[aria-hidden="true"]'));
+                    const isInteractive = config.hoverCheck !== false && (['button', 'a', 'input', 'select', 'textarea'].includes(tag) ||
+                        (style.cursor === 'pointer' && !svgInnerTags.includes(tag) && !el.closest('[aria-hidden="true"]')));
                     const hasText = el.innerText && el.innerText.trim().length > 0;
 
                     // ==========================================
@@ -657,8 +664,8 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     // 1.2 字体与排版
                     if (hasText && ['h1','h2','h3','h4','h5','h6','p','span','a','button','div'].includes(tag)) {
                         const ff = style.fontFamily.toLowerCase();
-                        if (!ff.includes('微软雅黑') && !ff.includes('pingfang sc')) {
-                            issues.push({ id: issueId++, title: "字体族违规", level: "medium", category: "视觉", desc: `实测 ${style.fontFamily}`, suggestion: `须包含 微软雅黑 或 PingFang SC`, rect: cords });
+                        if (!allowedFamilies.some(f => ff.includes(f))) {
+                            issues.push({ id: issueId++, title: "字体族违规", level: "medium", category: "视觉", desc: `实测 ${style.fontFamily}`, suggestion: `规范字体: ${allowedFamilies.join(', ')}`, rect: cords });
                         }
                         
                         const fs = parseFloat(style.fontSize);
@@ -675,8 +682,8 @@ async def run_audit_task(url: str, config: dict, mode: str):
                         }
 
                         const fw = style.fontWeight;
-                        if (!['400', '600', 'normal', 'bold'].includes(fw)) {
-                            issues.push({ id: issueId++, title: "字重异常", level: "low", category: "视觉", desc: `实测 ${fw}`, suggestion: `规范为 400 或 600`, rect: cords });
+                        if (!isWeightAllowed(fw)) {
+                            issues.push({ id: issueId++, title: "字重异常", level: "low", category: "视觉", desc: `实测 ${fw}`, suggestion: `规范字重: ${allowedWeights.join(', ')}`, rect: cords });
                         }
                     }
 
@@ -707,10 +714,10 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     });
 
                     // 1.4 阴影与图标
-                    const shadow = style.boxShadow;
-                    if (shadow && shadow !== 'none' && !allowedShadows.some(s => shadow.includes(s) || s.includes(shadow))) {
-                        if (!shadow.includes('rgba(0, 0, 0, 0.15)')) { // 简易判断 AntD 投影特征
-                            issues.push({ id: issueId++, title: "投影不符合规范", level: "medium", category: "视觉", desc: `实测 ${shadow}`, suggestion: `需符合 Ant Design 投影规范`, rect: cords });
+                    if (config.shadowCheck !== false) {
+                        const shadow = style.boxShadow;
+                        if (shadow && shadow !== 'none' && !allowedShadows.some(s => shadow.replace(/\s+/g,'').includes(s.replace(/\s+/g,'')))) {
+                            issues.push({ id: issueId++, title: "投影不符合规范", level: "medium", category: "视觉", desc: `实测 ${shadow}`, suggestion: `建议符合所选 ${config.shadowPreset || 'Ant Design'} 投影规范`, rect: cords });
                         }
                     }
 
@@ -752,26 +759,30 @@ async def run_audit_task(url: str, config: dict, mode: str):
                         if (rect.width < minClickArea || rect.height < minClickArea) {
                             issues.push({ id: issueId++, title: "点击热区过小", level: "high", category: "交互", desc: `实测 ${Math.round(rect.width)}x${Math.round(rect.height)}px`, suggestion: `尺寸应 >= ${minClickArea}px`, rect: cords });
                         }
-                        if (el.disabled || el.classList.contains('disabled')) {
-                            if (style.cursor !== 'not-allowed') {
-                                issues.push({ id: issueId++, title: "禁用状态光标错误", level: "medium", category: "交互", desc: `实测 ${style.cursor}`, suggestion: `应使用 not-allowed`, rect: cords });
+                        if (config.gestureCheck !== false) {
+                            if (el.disabled || el.classList.contains('disabled')) {
+                                if (style.cursor !== 'not-allowed') {
+                                    issues.push({ id: issueId++, title: "禁用状态光标错误", level: "medium", category: "交互", desc: `实测 ${style.cursor}`, suggestion: `应使用 not-allowed`, rect: cords });
+                                }
+                            } else if (style.cursor !== 'pointer' && tag !== 'input' && tag !== 'textarea') {
+                                issues.push({ id: issueId++, title: "可点击元素光标错误", level: "medium", category: "交互", desc: `实测 ${style.cursor}`, suggestion: `应使用 pointer`, rect: cords });
                             }
-                        } else if (style.cursor !== 'pointer' && tag !== 'input' && tag !== 'textarea') {
-                            issues.push({ id: issueId++, title: "可点击元素光标错误", level: "medium", category: "交互", desc: `实测 ${style.cursor}`, suggestion: `应使用 pointer`, rect: cords });
                         }
                     }
 
                     // 2.2 布局控制
-                    if (hasText && style.display === 'block' && (style.width !== 'auto' || style.maxWidth !== 'none')) {
+                    if (config.textFormatCheck !== false && hasText && style.display === 'block' && (style.width !== 'auto' || style.maxWidth !== 'none')) {
                         if (style.textOverflow !== 'ellipsis' && el.scrollWidth > el.clientWidth) {
                             issues.push({ id: issueId++, title: "文本未作省略处理", level: "medium", category: "布局", desc: `文本溢出容器未加 ellipsis`, suggestion: `默认应使用省略号截断`, rect: cords });
                         }
                     }
-                    const zi = parseInt(style.zIndex);
-                    if (!isNaN(zi) && zi > 0 && zi < 1000) {
-                        if (el.classList.contains('modal') || el.classList.contains('dropdown') || style.position === 'absolute') {
-                            if (zi < 100) {
-                                issues.push({ id: issueId++, title: "层级过低", level: "warning", category: "布局", desc: `弹窗/下拉菜单 z-index 为 ${zi}`, suggestion: `应置于最高层级防遮挡`, rect: cords });
+                    if (config.zIndexCheck !== false) {
+                        const zi = parseInt(style.zIndex);
+                        if (!isNaN(zi) && zi > 0 && zi < 1000) {
+                            if (el.classList.contains('modal') || el.classList.contains('dropdown') || style.position === 'absolute') {
+                                if (zi < 100) {
+                                    issues.push({ id: issueId++, title: "层级过低", level: "warning", category: "布局", desc: `弹窗/下拉菜单 z-index 为 ${zi}`, suggestion: `应置于最高层级防遮挡`, rect: cords });
+                                }
                             }
                         }
                     }
@@ -781,7 +792,7 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     // ==========================================
                     
                     // 3.1 色彩对比度
-                    if (hasText) {
+                    if (config.contrastCheck !== false && hasText) {
                         const bgMatch = style.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
                         const fgMatch = style.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
                         if (bgMatch && fgMatch && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
@@ -795,35 +806,37 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     }
 
                     // 3.2 图片 Alt
-                    if (tag === 'img') {
+                    if (config.altCheck !== false && tag === 'img') {
                         if (!el.hasAttribute('alt') || el.getAttribute('alt').trim() === '') {
                             issues.push({ id: issueId++, title: "缺失 Alt 属性", level: "high", category: "无障碍", desc: `<img> 标签未配置 alt`, suggestion: `强制要求添加替代文本`, rect: cords });
                         }
                     }
 
                     // 3.3 DOM 语义化
-                    const headingMatch = tag.match(/^h([1-6])$/);
-                    if (headingMatch) {
-                        const level = parseInt(headingMatch[1]);
-                        if (lastHeadingLevel > 0 && level - lastHeadingLevel > 1) {
-                            issues.push({ id: issueId++, title: "标题层级跨级", level: "medium", category: "无障碍", desc: `从 H${lastHeadingLevel} 跳到 H${level}`, suggestion: `层级顺序不可跨级`, rect: cords });
+                    if (config.domSemantics !== false) {
+                        const headingMatch = tag.match(/^h([1-6])$/);
+                        if (headingMatch) {
+                            const level = parseInt(headingMatch[1]);
+                            if (lastHeadingLevel > 0 && level - lastHeadingLevel > 1) {
+                                issues.push({ id: issueId++, title: "标题层级跨级", level: "medium", category: "无障碍", desc: `从 H${lastHeadingLevel} 跳到 H${level}`, suggestion: `层级顺序不可跨级`, rect: cords });
+                            }
+                            lastHeadingLevel = level;
                         }
-                        lastHeadingLevel = level;
                     }
                     
                     // ==========================================
-                    // 4. 性能与内容质量
+                    // 4. 文案与内容质量（category「质量」→ 前端「文案与话术」：全局用语、中英文空格、日期格式等）
                     // ==========================================
                     
                     // 4.1 死链扫描
-                    if (tag === 'a' && el.href) {
+                    if (config.deadlinkCheck !== false && tag === 'a' && el.href) {
                         if (el.href.startsWith('http') && el.href.includes('404')) {
                             issues.push({ id: issueId++, title: "发现疑似死链", level: "high", category: "质量", desc: `链接包含 404: ${el.href}`, suggestion: `请确保链接可用`, rect: cords });
                         }
                     }
 
                     // 4.2 中英文空格
-                    if (hasText) {
+                    if (config.textFormatCheck !== false && hasText) {
                         const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
                         let node;
                         while(node = walk.nextNode()) {
@@ -836,7 +849,7 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     }
 
                     // 4.3 日期格式
-                    if (hasText) {
+                    if (config.textFormatCheck !== false && hasText) {
                         const txt = el.innerText;
                         if (/\d{4}[/\.]\d{1,2}[/\.]\d{1,2}/.test(txt)) {
                             issues.push({ id: issueId++, title: "日期格式不规范", level: "medium", category: "质量", desc: `检测到非标日期: ${txt.substring(0,15)}`, suggestion: `全局统一为 YYYY-MM-DD`, rect: cords });
@@ -846,42 +859,53 @@ async def run_audit_task(url: str, config: dict, mode: str):
 
                 
                 // ==========================================
-                // 性能：图片资源大小检测 (通过 performance API)
+                // 性能：图片资源大小（归入功能障碍：影响加载与体验）
                 // ==========================================
                 const resources = window.performance.getEntriesByType('resource');
                 resources.forEach(res => {
                     if ((res.initiatorType === 'img' || res.name.match(/\.(png|jpe?g|webp|gif)/i)) && res.transferSize > 0) {
                         const sizeKB = res.transferSize / 1024;
                         if (sizeKB > imgSizeLimitKB) {
-                            issues.push({ id: issueId++, title: "图片体积过大", level: "warning", category: "性能与质量", desc: `图片 ${(res.name||'').split('/').pop().substring(0,20)} 体积 ${sizeKB.toFixed(1)}KB`, suggestion: `限制单张图片最大 ${imgSizeLimitKB}KB`, rect: {top:0,left:0,width:0,height:0} });
+                            issues.push({ id: issueId++, title: "图片体积过大", level: "warning", category: "功能障碍", desc: `图片 ${(res.name||'').split('/').pop().substring(0,20)} 体积 ${sizeKB.toFixed(1)}KB`, suggestion: `限制单张图片最大 ${imgSizeLimitKB}KB`, rect: {top:0,left:0,width:0,height:0} });
                         }
                     }
                 });
 
-                return issues;
+                const checkItemTotal = Math.max(1, Array.from(document.querySelectorAll('*')).filter(el => {
+                    const tag = el.tagName.toLowerCase();
+                    if (['script', 'style', 'meta', 'head', 'html', 'body', 'link', 'noscript'].includes(tag)) return false;
+                    const rect = el.getBoundingClientRect();
+                    return rect && rect.width > 0 && rect.height > 0;
+                }).length);
+                return { issues, checkItemTotal };
             }
 """
             _normalize_baseline_config_keys(config)
             print(f"[UI-Audit] baseline config spacingTokens = {config.get('spacingTokens')}")
             print(f"[UI-Audit] baseline config gridTokens    = {config.get('gridTokens')}")
-            issues = await page.evaluate(js_auditor, config)
+            raw_eval = await page.evaluate(js_auditor, config)
             await browser.close()
+            issues, check_item_total = _parse_issues_eval_result(raw_eval)
 
+        if check_item_total <= 0:
+            check_item_total = max(100, len(issues) * 10)
+
+        # 如果是本地文件，合并静态扫描的问题
+        if static_issues:
+            issues.extend(static_issues)
+            
         # 生成 AI 诊断总结
         diagnosis = await generate_diagnosis(issues)
         
-        # 🌟 优化后的加权算分逻辑
         high_count = len([i for i in issues if i.get('level') == 'high'])
         medium_count = len([i for i in issues if i.get('level') == 'medium'])
         low_count = len([i for i in issues if i.get('level') == 'low' or i.get('level') == 'warning'])
         issue_count = len(issues)
-        
-        # 设计还原度评分 (Restoration Score)
-        # 高优扣8分，中优扣3分，低优扣1分
-        score = max(0, 100 - (high_count * 8 + medium_count * 3 + low_count * 1))
-        
+
+        rs = compute_restoration_score(issues, check_item_total)
+        score = rs["score"]
+
         # 设计规范符合度 (Compliance Score)
-        # 规范合规对严重违规更敏感：高优扣10分，中优扣4分，低优扣1分
         compliance = max(0, 100 - (high_count * 10 + medium_count * 4 + low_count * 1))
 
         return {
@@ -889,8 +913,11 @@ async def run_audit_task(url: str, config: dict, mode: str):
             "compliance": compliance,
             "issueCount": issue_count,
             "issues": issues,
+            "checkItemTotal": rs["checkItemTotal"],
+            "dimensionScores": rs["dimensionScores"],
+            "dimensionDeductions": rs.get("dimensionDeductions"),
             "diagnosis": diagnosis,
             "screenshot": screenshot_base64,
             "url": url,
-            "mode": mode # 记录当前使用的模式
+            "mode": mode,  # 记录当前使用的模式
         }

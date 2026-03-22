@@ -73,7 +73,8 @@
 
         <div class="project-grid" v-else>
           <div class="project-card" v-for="item in recentHistory" :key="item.id" @click="viewReport(item)">
-            <div class="project-thumb" style="background: linear-gradient(135deg, #e8ecf5, #d4daea);">
+            <div class="project-thumb">
+              <div class="thumb-glow"></div>
               <div class="score-display">
                 {{ item.score || 0 }}<span style="font-size:20px;">%</span>
               </div>
@@ -158,6 +159,7 @@ const startConfig = () => {
   if (!url.value) return showMsg('提示', '请输入目标网页地址', 'warning')
   auditStore.setTargetUrl(url.value)
   auditStore.setCheckMode(mode.value)
+  auditStore.clearSessionDraft()
   // 必须跳转到 audit-setup
   router.push('/audit-setup')
 }
@@ -208,7 +210,7 @@ const modeBadgeLabel = (mode) => {
 .url-input-wrap { margin-bottom: 24px; }
 .input-group { position: relative; }
 .input-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #9ca3af; display: flex; align-items: center; justify-content: center; }
-.input-field { width: 100%; font-size: 16px; padding: 16px 16px 16px 48px; border: 1px solid #e2e4ec; border-radius: 12px; outline: none; transition: border-color 0.2s; box-sizing: border-box;}
+.input-field { width: 100%; height: 52px; font-size: 16px; padding: 0 16px 0 48px; border: 1px solid #e2e4ec; border-radius: 12px; outline: none; transition: border-color 0.2s; box-sizing: border-box;}
 .input-field:focus { border-color: #1A6AFF; box-shadow: 0 0 0 3px rgba(26, 106, 255,0.1); }
 .mode-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
 .mode-option { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1.5px solid #e2e4ec; border-radius: 12px; cursor: pointer; transition: all 0.2s; background: #fff; text-align: left;}
@@ -221,7 +223,7 @@ const modeBadgeLabel = (mode) => {
 .inline-time-icon { color: #9ca3af; margin-right: 4px; }
 .mode-option-title { font-size: 14px; font-weight: 600; color: #1A6AFF; margin-bottom: 4px; }
 .mode-option-desc { font-size: 12px; color: #6b7280; line-height: 1.4; }
-.start-btn { width: 100%; padding: 16px; font-size: 18px; border-radius: 12px; display: flex; justify-content: center; gap: 8px; border: none; background: #1A6AFF; color: white; cursor: pointer; font-weight: 600;}
+.start-btn { width: 100%; height: 52px; padding: 0; font-size: 18px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; background: #1A6AFF; color: white; cursor: pointer; font-weight: 600;}
 .start-btn:hover { background: #1557e6; }
 .feature-tags { display: flex; align-items: center; justify-content: center; gap: 24px; margin-top: 20px; }
 .feature-tag { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9ca3af; }
@@ -234,14 +236,68 @@ const modeBadgeLabel = (mode) => {
 
 /* 历史卡片样式 */
 .project-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; max-width: 1080px; margin: 0 auto; }
-.project-card { background: #fff; border-radius: 12px; border: 1px solid #e8eaf0; overflow: hidden; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
-.project-card:hover { transform: translateY(-4px); box-shadow: 0 10px 24px rgba(60,72,120,0.08); border-color: rgba(26, 106, 255,0.3); }
-.project-thumb { height: 140px; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.score-display { font-size: 40px; font-weight: 900; color: #1A6AFF; text-shadow: 0 4px 12px rgba(26, 106, 255,0.15); }
-.status-badge { position: absolute; top: 12px; right: 12px; font-size: 10px; font-weight: 800; padding: 4px 8px; border-radius: 4px; letter-spacing: 0.05em; background: #1A6AFF; color: #fff; }
+.project-card {
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 230, 240, 0.6);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  box-shadow: 0 2px 12px rgba(60, 72, 120, 0.04);
+}
+.project-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 40px rgba(26, 106, 255, 0.10), 0 4px 12px rgba(60, 72, 120, 0.06);
+  border-color: rgba(26, 106, 255, 0.2);
+}
+.project-thumb {
+  height: 148px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: linear-gradient(160deg, #eef2fb 0%, #e4e9f7 40%, #dde4f5 70%, #e8e4f3 100%);
+}
+.thumb-glow {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(100, 100, 255, 0.30) 0%, rgba(130, 120, 255, 0.18) 40%, transparent 70%);
+  filter: blur(20px);
+  pointer-events: none;
+  transition: transform 0.4s ease, opacity 0.3s ease;
+}
+.project-card:hover .thumb-glow {
+  transform: scale(1.25);
+  opacity: 0.85;
+}
+.score-display {
+  position: relative;
+  z-index: 1;
+  font-size: 42px;
+  font-weight: 900;
+  color: #1A6AFF;
+  letter-spacing: -0.02em;
+}
+.status-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 6px;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, #1A6AFF, #5b8cf7);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(26, 106, 255, 0.25);
+}
 
-.project-info { padding: 16px; }
-.project-name { font-size: 14px; font-weight: 600; color: #1a1d2e; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-.project-time { font-size: 12px; color: #9ca3af; }
+.project-info { padding: 16px; border-top: 1px solid rgba(226, 230, 240, 0.5); }
+.project-name { font-size: 14px; font-weight: 600; color: #1a1d2e; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-time { font-size: 12px; color: #9ca3af; display: flex; align-items: center; gap: 4px; }
 .footer { text-align: center; padding: 24px; font-size: 14px; color: #6b7280; background: transparent; border: none; border-top: none; box-shadow: none; }
 </style>

@@ -77,8 +77,8 @@
             <div class="auth-tab" :class="{ active: !isLogin }" @click="isLogin = false">注册账号</div>
           </div>
           <div class="input-group">
-            <label>用户名</label>
-            <input type="text" v-model="username" placeholder="请输入用户名">
+            <label>账号名称</label>
+            <input type="text" v-model="username" placeholder="请输入账号名称" autocomplete="username">
           </div>
           <div class="input-group">
             <label>密码</label>
@@ -141,10 +141,11 @@ const handleSubmit = async () => {
           userStore.login(loginRes.data.data)
           router.push('/')
         } else {
-          showMsg('注册失败', res.data.message, 'error')
+          showMsg('注册失败', res.data.message || '注册失败', 'error')
         }
       } catch (err) {
-        showMsg('系统错误', '注册请求失败，请稍后再试', 'error')
+        const d = err.response?.data?.detail
+        showMsg('注册失败', typeof d === 'string' ? d : '注册请求失败，请稍后再试', 'error')
       }
     }
   }
@@ -430,10 +431,14 @@ const handleSubmit = async () => {
 
 .login-card {
   background: #fff;
-  padding: 36px 40px;
+  min-height: 460px;
+  padding: 44px 40px 48px;
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(15, 23, 42, 0.1);
   border: 1px solid #e8eaf0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .login-card h2 {
@@ -446,13 +451,16 @@ const handleSubmit = async () => {
 
 .auth-tabs {
   display: flex;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
   border-bottom: 1px solid #e5e7eb;
 }
 
 .auth-tab {
   flex: 1;
-  padding: 10px 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   color: #6b7280;
   font-size: 0.95rem;
@@ -469,11 +477,12 @@ const handleSubmit = async () => {
   font-weight: 700;
 }
 
-.input-group { text-align: left; margin-bottom: 18px; }
+.input-group { text-align: left; margin-bottom: 22px; }
 .input-group label { display: block; font-size: 0.8rem; color: #4b5563; margin-bottom: 8px; font-weight: 600; }
 .input-group input {
   width: 100%;
-  padding: 12px 14px;
+  height: 44px;
+  padding: 0 14px;
   border: 1px solid #e2e4ec;
   border-radius: 8px;
   outline: none;
@@ -485,15 +494,20 @@ const handleSubmit = async () => {
 
 .login-btn {
   width: 100%;
-  padding: 14px;
+  height: 48px;
+  padding: 0;
   border: none;
   border-radius: 8px;
   font-size: 1rem;
   cursor: pointer;
   background: #1A6AFF;
   color: white;
-  margin-top: 8px;
+  margin-top: auto;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
 .login-btn:hover { background: #1557e6; }
