@@ -6,62 +6,55 @@
       </template>
     </AppNavbar>
 
-    <!-- 全局悬浮气泡：彻底脱离父级层级限制 -->
+    <!-- 紧凑锚点气泡：弹窗层 pointer-events:auto + 最高 z-index，避免命中穿透到下方标注框 -->
     <Teleport to="body">
-      <div class="global-annotation-popover" :class="{ 'is-visible': hoveredGroup }" @mouseenter="onPopoverEnter" @mouseleave="onPopoverLeave">
-        <template v-if="hoveredGroup">
-          <div class="popover-header">
-            <span class="ph-badge" :class="hoveredGroup.level === 'high' ? 'badge-critical' : 'badge-warning'">
-              {{ hoveredGroup.level === 'high' ? 'CRITICAL' : 'WARNING' }}
-            </span>
-            <span>该区域捕获 {{ hoveredGroup.items.length }} 个异常</span>
-          </div>
-          <div v-for="(issue, idx) in hoveredGroup.items" :key="issue.id" class="popover-item" :class="{'mt-border': idx > 0}">
-            <div class="popover-title"><span v-if="hoveredGroup.items.length > 1" style="color:#9ca3af; margin-right:4px;">{{ idx + 1 }}.</span>{{ issue.title }}</div>
-            <div class="popover-desc"><span class="pop-lbl">实测：</span>{{ issue.desc }}</div>
-            <div class="popover-sugg"><span class="pop-lbl">建议：</span>{{ issue.suggestion }}</div>
-          </div>
-        </template>
+      <div
+        ref="popoverLayerRef"
+        v-show="hoveredIssues.length > 0"
+        class="issue-popover-layer"
+        :class="{ 'is-visible': hoveredIssues.length > 0 }"
+        :style="popoverLayerStyle"
+      >
+        <DashboardIssuePopover
+          v-if="hoveredIssues.length > 0"
+          :issues="hoveredIssues"
+          :placement="popoverPlacement"
+          @popover-enter="onPopoverEnter"
+          @popover-leave="onPopoverLeave"
+        />
       </div>
     </Teleport>
 
     <div class="dashboard-main">
       <div class="canvas-area">
         <div class="canvas-header">
-          <div class="canvas-header-title">👁 页面实时预览 (将鼠标悬停在框选区域查看详情)</div>
-          <div class="canvas-legend">
-            <span><span class="legend-dot" style="background:#ef4444;"></span>严重不符</span>
-            <span><span class="legend-dot" style="background:#f59e0b;"></span>视觉偏离</span>
-          </div>
+          <div class="canvas-header-title">👁 页面实时预览 (重叠时优先识别较小框，悬停查看详情)</div>
         </div>
-        
-        <div class="canvas-viewport">
-          <div class="mock-device" :style="{ transform: `scale(${zoom / 100})` }">
+
+        <div ref="canvasViewportRef" class="canvas-viewport" @scroll.passive="schedulePopoverPosition">
+          <div ref="mockDeviceRef" class="mock-device" :style="{ transform: `scale(${zoom / 100})` }">
             <img v-if="reportData.screenshot" :src="'data:image/png;base64,' + reportData.screenshot" class="actual-img" />
             <div v-else class="actual-img-placeholder">📸 后端未返回截图</div>
-            
-            <template v-if="groupedIssues.length > 0">
-              <div v-for="(group, idx) in groupedIssues" :key="group.id"
-                   class="annotation-box"
-                   :class="group.level === 'high' ? 'ann-critical' : 'ann-warning'"
-                   :style="{ 
-                     top: group.rect.top + 'px', 
-                     left: group.rect.left + 'px', 
-                     width: group.rect.width + 'px', 
-                     height: group.rect.height + 'px',
-                     zIndex: 10 + idx
-                   }"
-                   @mouseenter="onBoxEnter(group)"
-                   @mouseleave="onBoxLeave()">
-                
-                <span class="annotation-label">
-                  {{ group.items.length > 1 ? `发现 ${group.items.length} 个异常` : `${group.items[0].category}异常` }}
-                </span>
-              </div>
+
+            <template v-if="issueMarkers.length > 0">
+              <div
+                v-for="(marker, idx) in issueMarkers"
+                :key="marker.issue.id"
+                class="annotation-box"
+                :class="[`ann-${marker.urgency}`, { 'is-popover-active': hoveredRectKey && markerRectKey(marker) === hoveredRectKey }]"
+                :data-issue-id="getMarkerDataId(marker, idx)"
+                :style="{
+                  top: marker.rect.top + 'px',
+                  left: marker.rect.left + 'px',
+                  width: marker.rect.width + 'px',
+                  height: marker.rect.height + 'px',
+                  zIndex: 10 + idx
+                }"
+              />
             </template>
           </div>
         </div>
-        
+
         <div class="zoom-controls">
           <button @click="zoom -= 10">−</button><span>{{ zoom }}%</span><button @click="zoom += 10">+</button>
         </div>
@@ -72,7 +65,7 @@
           <div class="sidebar-header-title">属性审计对比列表</div>
           <div class="sidebar-header-hint">检测到 <strong style="color:#ef4444;">{{ reportData.issueCount || 0 }}</strong> 个不符合规范的属性</div>
         </div>
-        
+
         <div class="sidebar-body">
           <table class="audit-table">
             <thead>
@@ -90,22 +83,22 @@
                   </div>
                 </td>
               </tr>
-              
+
               <template v-if="reportData.issues && reportData.issues.length > 0">
                 <tr v-for="issue in filteredTableIssues" :key="issue.id" class="data-row">
                   <td class="attr-name" :title="issue.title">{{ (issue.title || '未知').substring(0,8) }}</td>
-                  <td class="actual-val" :class="issue.level==='high' ? 'val-err' : 'val-warn'">{{ extractValue(issue.desc, true) }}</td>
+                  <td class="actual-val" :class="`val-${getIssueUrgency(issue)}`">{{ extractValue(issue.desc, true) }}</td>
                   <td class="standard-val">
                     <div style="font-size:0.8rem; line-height:1.4; font-weight:600;">{{ extractValue(issue.desc, false) }}</div>
                     <div class="fix-link" :title="issue.suggestion">建议：{{ (issue.suggestion || '请参考规范').substring(0,8) }}...</div>
                   </td>
-                  <td style="text-align:right;"><span class="status-tag" :class="issue.level==='high'?'st-fail':'st-warn'">{{ issue.level==='high'?'不符合':'偏离' }}</span></td>
+                  <td style="text-align:right;"><span class="status-tag" :class="`st-${getIssueUrgency(issue)}`">{{ getIssueUrgencyLabel(issue) }}</span></td>
                 </tr>
               </template>
               <tr v-else><td colspan="4" style="text-align:center; padding: 30px; color:#9ca3af;">无样式异常数据</td></tr>
             </tbody>
           </table>
-          
+
           <div class="sidebar-footer">
             <div class="fix-suggestion-box">
               <div class="fs-title"><span>🤖</span> AI 整体诊断结论</div>
@@ -119,10 +112,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import AppNavbar from '../components/AppNavbar.vue'
+import DashboardIssuePopover from '../components/DashboardIssuePopover.vue'
 import { useAuditStore } from '../store/audit'
+import { getIssueUrgency } from '../utils/issueUrgency'
 
 const router = useRouter()
 const auditStore = useAuditStore()
@@ -130,30 +125,228 @@ const reportData = auditStore.reportData
 
 const zoom = ref(50)
 const selectedCategory = ref('all')
-const hoveredGroup = ref(null)
+const hoveredIssues = ref([])
+const hoveredRectKey = ref(null)
+const hoveredAnchorEl = ref(null)
+const canvasViewportRef = ref(null)
+const mockDeviceRef = ref(null)
+const popoverLayerRef = ref(null)
+const popoverLayerStyle = ref({})
+const popoverPlacement = ref('right')
 
-let hoverTimer = null
+let clearHoverTimer = null
+let pendingSwitchTimer = null
+let popoverPosRaf = null
+let hitTestRaf = null
+let lastPointerEvent = null
 
-const onBoxEnter = (group) => {
-  if (hoverTimer) clearTimeout(hoverTimer)
-  hoveredGroup.value = group
+const VIEW_PAD = 12
+const EST_POP_W = 300
+const HOVER_SWITCH_DELAY_MS = 300
+const LEAVE_DELAY_MS = 450
+
+function estimatePopoverHeight(n) {
+  return Math.min(360, 56 + n * 108)
 }
 
-const onBoxLeave = () => {
-  // 留出 400ms 的缓冲时间，允许用户将鼠标移动到屏幕中央的弹框上
-  hoverTimer = setTimeout(() => {
-    hoveredGroup.value = null
-  }, 400)
+function computeCenteredInViewport(viewportRect) {
+  const pad = VIEW_PAD
+  const n = hoveredIssues.value.length || 1
+  const popW = Math.min(EST_POP_W, viewportRect.width - pad * 2)
+  const popH = Math.min(estimatePopoverHeight(n), viewportRect.height - pad * 2)
+  let left = viewportRect.left + (viewportRect.width - popW) / 2
+  let top = viewportRect.top + (viewportRect.height - popH) / 2
+  left = Math.max(viewportRect.left + pad, Math.min(left, viewportRect.right - pad - popW))
+  top = Math.max(viewportRect.top + pad, Math.min(top, viewportRect.bottom - pad - popH))
+  popoverPlacement.value = 'center'
+  return {
+    position: 'fixed',
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+    zIndex: 2147483647,
+    /* 必须可命中，否则 elementsFromPoint 会穿透到下方标注框，阅读弹窗时误切换 */
+    pointerEvents: 'auto',
+    maxWidth: `${Math.round(popW)}px`
+  }
+}
+
+function updatePopoverPosition() {
+  const viewportEl = canvasViewportRef.value
+  if (!hoveredIssues.value.length || !viewportEl) return
+  const v = viewportEl.getBoundingClientRect()
+  popoverLayerStyle.value = computeCenteredInViewport(v)
+}
+
+function schedulePopoverPosition() {
+  if (popoverPosRaf != null) cancelAnimationFrame(popoverPosRaf)
+  popoverPosRaf = requestAnimationFrame(() => {
+    popoverPosRaf = null
+    updatePopoverPosition()
+  })
+}
+
+function onWindowResizeOrScroll() {
+  schedulePopoverPosition()
+}
+
+const getIssueUrgencyLabel = (issue) => {
+  const u = getIssueUrgency(issue)
+  if (u === 'high') return '高'
+  if (u === 'medium') return '中'
+  return '低'
+}
+
+function getMarkerDataId(marker, idx) {
+  const id = marker.issue?.id
+  if (id != null && id !== '') return String(id)
+  return `m-${idx}-${marker.rect.left}-${marker.rect.top}`
+}
+
+function findIssueByDataId(rawId) {
+  if (rawId == null || rawId === '') return null
+  const markers = issueMarkers.value
+  for (let i = 0; i < markers.length; i++) {
+    if (getMarkerDataId(markers[i], i) === String(rawId)) return markers[i].issue
+  }
+  return null
+}
+
+function rectKey(r) {
+  if (!r || typeof r !== 'object') return ''
+  const q = (n) => Math.round(Number(n) || 0)
+  return [q(r.left), q(r.top), q(r.width), q(r.height)].join(',')
+}
+
+function markerRectKey(marker) {
+  return rectKey(marker.rect)
+}
+
+function cancelClearHover() {
+  if (clearHoverTimer) clearTimeout(clearHoverTimer)
+  clearHoverTimer = null
+}
+
+function clearPendingSwitch() {
+  if (pendingSwitchTimer) {
+    clearTimeout(pendingSwitchTimer)
+    pendingSwitchTimer = null
+  }
+}
+
+function scheduleClearHover(delay = LEAVE_DELAY_MS) {
+  cancelClearHover()
+  clearHoverTimer = setTimeout(() => {
+    clearHoverTimer = null
+    hoveredIssues.value = []
+    hoveredRectKey.value = null
+    hoveredAnchorEl.value = null
+    popoverLayerStyle.value = {}
+  }, delay)
+}
+
+/**
+ * 在指针位置命中「面积最小」的标注框：嵌套时等价于最内层细节，不依赖 z-index 叠放（避免悬停抬升盖住内框）。
+ */
+function findBestAnnotationUnderPoint(clientX, clientY, device) {
+  if (!device) return null
+  const nodes = device.querySelectorAll('.annotation-box')
+  let bestEl = null
+  let bestArea = Infinity
+  for (const el of nodes) {
+    const r = el.getBoundingClientRect()
+    if (r.width <= 0 || r.height <= 0) continue
+    if (
+      clientX < r.left ||
+      clientX > r.right ||
+      clientY < r.top ||
+      clientY > r.bottom
+    ) {
+      continue
+    }
+    const area = r.width * r.height
+    if (area < bestArea) {
+      bestArea = area
+      bestEl = el
+    }
+  }
+  return bestEl
+}
+
+function isPointOverPopoverLayer(clientX, clientY) {
+  const layer = popoverLayerRef.value
+  if (!layer || !hoveredIssues.value.length) return false
+  const r = layer.getBoundingClientRect()
+  if (r.width <= 0 || r.height <= 0) return false
+  return (
+    clientX >= r.left &&
+    clientX <= r.right &&
+    clientY >= r.top &&
+    clientY <= r.bottom
+  )
+}
+
+function onDocumentPointerMove(e) {
+  lastPointerEvent = e
+  if (hitTestRaf != null) return
+  hitTestRaf = requestAnimationFrame(() => {
+    hitTestRaf = null
+    const ev = lastPointerEvent
+    const device = mockDeviceRef.value
+    if (!ev || !device) return
+
+    const x = ev.clientX
+    const y = ev.clientY
+    const stack = document.elementsFromPoint(x, y)
+
+    const overPopover =
+      stack.some((el) => el?.closest?.('.issue-popover-layer') || el?.closest?.('.dip-wrap')) ||
+      isPointOverPopoverLayer(x, y)
+
+    /* 必须先判断弹窗：几何命中标注框不区分叠放顺序，弹窗盖住预览时指针仍在下方框的 rect 内，会误切换 */
+    if (overPopover) {
+      cancelClearHover()
+      clearPendingSwitch()
+      return
+    }
+
+    const annEl = findBestAnnotationUnderPoint(x, y, device)
+
+    if (annEl) {
+      cancelClearHover()
+      const issue = findIssueByDataId(annEl.dataset.issueId)
+      if (!issue) return
+      const rk = rectKey(issue.rect)
+      if (rk === hoveredRectKey.value) {
+        clearPendingSwitch()
+        hoveredAnchorEl.value = annEl
+        schedulePopoverPosition()
+        return
+      }
+      const delay = hoveredRectKey.value === null ? 0 : HOVER_SWITCH_DELAY_MS
+      clearPendingSwitch()
+      pendingSwitchTimer = setTimeout(() => {
+        pendingSwitchTimer = null
+        hoveredRectKey.value = rk
+        hoveredIssues.value = collectIssuesForRect(issue.rect)
+        hoveredAnchorEl.value = annEl
+        nextTick(() => {
+          updatePopoverPosition()
+          schedulePopoverPosition()
+        })
+      }, delay)
+    } else {
+      clearPendingSwitch()
+      scheduleClearHover(LEAVE_DELAY_MS)
+    }
+  })
 }
 
 const onPopoverEnter = () => {
-  if (hoverTimer) clearTimeout(hoverTimer)
+  cancelClearHover()
 }
 
 const onPopoverLeave = () => {
-  hoverTimer = setTimeout(() => {
-    hoveredGroup.value = null
-  }, 300)
+  scheduleClearHover(LEAVE_DELAY_MS)
 }
 
 const availableCategories = computed(() => {
@@ -164,6 +357,19 @@ const availableCategories = computed(() => {
 
 onMounted(() => {
   if (!reportData) setTimeout(() => router.push('/'), 1500)
+  window.addEventListener('resize', onWindowResizeOrScroll, { passive: true })
+  window.addEventListener('scroll', onWindowResizeOrScroll, true)
+  window.addEventListener('mousemove', onDocumentPointerMove, { passive: true })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', onWindowResizeOrScroll)
+  window.removeEventListener('scroll', onWindowResizeOrScroll, true)
+  window.removeEventListener('mousemove', onDocumentPointerMove)
+  cancelClearHover()
+  clearPendingSwitch()
+  if (popoverPosRaf != null) cancelAnimationFrame(popoverPosRaf)
+  if (hitTestRaf != null) cancelAnimationFrame(hitTestRaf)
 })
 
 const filteredTableIssues = computed(() => {
@@ -172,30 +378,42 @@ const filteredTableIssues = computed(() => {
   return reportData.issues.filter(i => (i.category || '未分类') === selectedCategory.value)
 })
 
-// 🌟 将相同坐标的 issue 分组，避免在图上重叠导致只能看到一个框
-const groupedIssues = computed(() => {
-  const issuesToGroup = filteredTableIssues.value
-  if (!issuesToGroup || issuesToGroup.length === 0) return []
-  const groups = {}
-  issuesToGroup.forEach(issue => {
-    if (!issue.rect) return
-    // 用坐标生成唯一 key
-    const key = `${Math.round(issue.rect.top)}_${Math.round(issue.rect.left)}_${Math.round(issue.rect.width)}_${Math.round(issue.rect.height)}`
-    if (!groups[key]) {
-      groups[key] = {
-        id: key,
-        rect: issue.rect,
-        level: issue.level, // 取最高优先级
-        items: []
-      }
-    }
-    // 如果组内有 high，则整个组标为 high
-    if (issue.level === 'high') groups[key].level = 'high'
-    groups[key].items.push(issue)
+/** 同一框选矩形（rect 一致）下的全部问题，顺序与报告 issues 一致 */
+function collectIssuesForRect(rect) {
+  const key = rectKey(rect)
+  if (!key) return []
+  const matched = filteredTableIssues.value.filter((i) => i.rect && rectKey(i.rect) === key)
+  const orderMap = new Map()
+  if (reportData?.issues) {
+    reportData.issues.forEach((issue, idx) => {
+      orderMap.set(issue.id, idx)
+    })
+  }
+  return matched.slice().sort((a, b) => {
+    const oa = orderMap.get(a.id) ?? 9999
+    const ob = orderMap.get(b.id) ?? 9999
+    return oa - ob
   })
-  const arr = Object.values(groups)
-  // 按面积从大到小排序，确保小方框渲染在后，层级更高（不会被大方框遮挡导致无法选中）
-  return arr.sort((a, b) => (b.rect.width * b.rect.height) - (a.rect.width * a.rect.height))
+}
+
+watch(zoom, () => {
+  if (hoveredIssues.value.length) nextTick(() => schedulePopoverPosition())
+})
+
+/** 每条 issue 独立框选，重叠时小块在上层，便于命中相邻区域 */
+const issueMarkers = computed(() => {
+  const list = filteredTableIssues.value
+    .filter((i) => i.rect)
+    .map((issue) => ({
+      issue,
+      rect: issue.rect,
+      urgency: getIssueUrgency(issue)
+    }))
+  return list.sort((a, b) => {
+    const areaA = a.rect.width * a.rect.height
+    const areaB = b.rect.width * b.rect.height
+    return areaB - areaA
+  })
 })
 
 const extractValue = (desc, isActual) => {
@@ -212,40 +430,38 @@ const goTo = (path) => router.push(path)
 <style scoped>
 .dashboard-layout { display: flex; flex-direction: column; padding-top: 60px; height: 100vh; background: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }
 .btn { border: none; cursor: pointer; font-family: inherit; font-weight: 600; transition: background 0.2s; }
-.btn-primary { background: #3b6ef8; color: white; border-radius: 6px; padding: 8px 16px; font-size: 0.85rem; }
-.btn-primary:hover { background: #256af4; }
+.btn-primary { background: #1A6AFF; color: white; border-radius: 6px; padding: 8px 16px; font-size: 0.85rem; }
+.btn-primary:hover { background: #1557e6; }
 
 .dashboard-main { flex: 1; display: flex; overflow: hidden; padding: 24px; gap: 24px; }
 
 .canvas-area { flex: 1; display: flex; flex-direction: column; background: white; border-radius: 12px; border: 1px solid #e5e7eb; overflow: hidden; position: relative;}
 .canvas-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid #e5e7eb; background: white; z-index: 10;}
 .canvas-header-title { font-weight: 700; color: #1a1d2e; font-size: 1.05rem; }
-.canvas-legend { display: flex; gap: 16px; font-size: 0.85rem; color: #4b5563; }
-.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-.canvas-viewport { 
-  flex: 1; 
-  background: #eef1f6; 
-  overflow: auto; 
-  display: flex; 
-  justify-content: center; 
-  align-items: flex-start; /* 🚨 必须是 flex-start，防止容器拉伸变形 */
-  padding: 40px; 
-  position: relative; 
+.canvas-viewport {
+  flex: 1;
+  background: #eef1f6;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px;
+  position: relative;
 }
 
-.mock-device { 
-  background: white; 
-  box-shadow: 0 20px 40px rgba(0,0,0,0.15); 
-  position: relative; 
-  transform-origin: top center; 
-  transition: transform 0.15s ease; 
-  display: inline-block; /* 🚨 核心：让 div 紧紧包裹住原比例图片 */
-  line-height: 0; /* 消除幽灵底边距 */
+.mock-device {
+  background: white;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+  position: relative;
+  transform-origin: top center;
+  transition: transform 0.15s ease;
+  display: inline-block;
+  line-height: 0;
 }
 
-.actual-img { 
-  display: block; 
-  max-width: none; /* 🚨 绝对核心：禁止图片被 CSS 缩放，保持 1:1 原生像素！ */
+.actual-img {
+  display: block;
+  max-width: none;
 }
 .actual-img-placeholder { padding: 80px 20px; text-align: center; color: #9ca3af; height: 100%; display:flex; flex-direction:column; justify-content:center; align-items:center;}
 
@@ -253,60 +469,49 @@ const goTo = (path) => router.push(path)
 .zoom-controls button { background: none; border: none; padding: 4px 12px; font-size: 1.2rem; cursor: pointer; color: #4b5563; }
 .zoom-controls span { font-size: 0.85rem; font-weight: 600; width: 45px; text-align: center; }
 
-/* 🌟 核心标注框 (加入防膨胀与指针变动) */
-.annotation-box { 
-  position: absolute; 
-  border: 2px solid; 
-  box-sizing: border-box; /* 🚨 彻底解决边框导致的尺寸膨胀偏移 */
-  cursor: crosshair; 
-  box-shadow: 0 0 0 3px rgba(255,255,255,0.7); 
+.annotation-box {
+  position: absolute;
+  border: 2px solid;
+  box-sizing: border-box;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.7);
   z-index: 5;
-  transition: background 0.2s, z-index 0.2s;
+  transition: background 0.15s ease, box-shadow 0.15s ease, z-index 0.15s ease;
 }
-.annotation-box:hover { 
-  background: rgba(255,255,255,0.25); 
+.annotation-box:hover {
+  background: rgba(255,255,255,0.18);
+  box-shadow:
+    0 0 0 2px rgba(255,255,255,0.75),
+    0 3px 12px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.04);
 }
-.annotation-label { position: absolute; top: -24px; left: -2px; padding: 4px 8px; font-size: 13px; font-weight: 600; color: white; border-radius: 4px 4px 4px 0; white-space: nowrap; }
-.ann-critical { border-color: #ef4444; } .ann-critical .annotation-label { background: #ef4444; }
-.ann-warning { border-color: #f59e0b; } .ann-warning .annotation-label { background: #f59e0b; }
+.annotation-box.is-popover-active {
+  background: rgba(255,255,255,0.18);
+  box-shadow:
+    0 0 0 2px rgba(255,255,255,0.85),
+    0 0 0 1px rgba(26, 106, 255, 0.38),
+    0 4px 16px rgba(26, 106, 255, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+}
+/* 预览区仅保留红黄蓝框线，不在框上展示优先级文字（弹窗内仍显示） */
+.ann-high { border-color: #ef4444; }
+.ann-medium { border-color: #f59e0b; }
+.ann-low { border-color: #3b82f6; }
 
-/* 🌟 悬停高级气泡 (Tooltip Popover) */
-.global-annotation-popover {
-  position: fixed;
-  top: 50vh;
-  left: 50vw;
-  transform: translate(-50%, -50%) scale(0.95);
-  background: rgba(26, 29, 46, 0.95);
-  backdrop-filter: blur(12px);
-  padding: 20px 24px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  width: max-content;
-  max-width: 500px;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 24px 50px rgba(0,0,0,0.6);
+.issue-popover-layer {
   opacity: 0;
   visibility: hidden;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: auto; /* 允许鼠标交互（滚动/点击） */
-  z-index: 2147483647; /* 保证绝对在最上层 */
+  transition: opacity 0.12s ease, visibility 0.12s ease;
+  /* 与内联 z-index 一致，保证在预览标注与侧栏之上 */
+  z-index: 2147483647;
+  isolation: isolate;
 }
-.global-annotation-popover.is-visible {
+.issue-popover-layer.is-visible {
   opacity: 1;
   visibility: visible;
-  transform: translate(-50%, -50%) scale(1);
+  pointer-events: auto;
 }
-.popover-header { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; font-weight: 600; color: #9ca3af; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-bottom: 12px; }
-.ph-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; color: white; }
-.badge-critical { background: #ef4444; } .badge-warning { background: #f59e0b; }
 
-.popover-title { font-size: 0.95rem; font-weight: 700; color: white; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px;}
-.popover-desc, .popover-sugg { font-size: 0.82rem; color: white; margin-bottom: 6px; line-height: 1.5; white-space: normal;}
-.pop-lbl { color: #9ca3af; font-weight: 600;}
-.mt-border { margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(255,255,255,0.2); }
-
-/* 右侧表格 */
 .sidebar { width: 480px; background: white; border-radius: 12px; border: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);}
 .sidebar-header { padding: 24px; border-bottom: 1px solid #e5e7eb; }
 .sidebar-header-title { font-size: 1.2rem; font-weight: 700; color: #1a1d2e; margin-bottom: 8px; }
@@ -319,17 +524,18 @@ const goTo = (path) => router.push(path)
 .data-row { border-bottom: 1px solid #f3f4f6; }
 .data-row td { padding: 16px 24px; font-size: 0.9rem; vertical-align: top;}
 .attr-name { color: #4b5563; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-.val-err { color: #ef4444; font-weight: 600; } .val-warn { color: #f59e0b; font-weight: 600; } .val-ok { color: #10b981; font-weight: 600; }
+.val-high { color: #ef4444; font-weight: 600; } .val-medium { color: #f59e0b; font-weight: 600; } .val-low { color: #3b82f6; font-weight: 600; }
 .standard-val { color: #1a1d2e; font-weight: 500;}
-.fix-link { color: #3b6ef8; font-size: 0.8rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.fix-link { color: #1A6AFF; font-size: 0.8rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 
 .status-tag { padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 500; display: inline-block;}
-.st-fail { color: #ef4444; background: #fee2e2; border: 1px solid #fca5a5;}
-.st-warn { color: #f59e0b; background: #fef3c7; border: 1px solid #fcd34d;}
+.st-high { color: #ef4444; background: #fee2e2; border: 1px solid #fca5a5;}
+.st-medium { color: #b45309; background: #fef3c7; border: 1px solid #fcd34d;}
+.st-low { color: #2563eb; background: #dbeafe; border: 1px solid #93c5fd;}
 
 .sidebar-footer { padding: 24px; margin-top: auto; border-top: 1px solid #e5e7eb;}
 .fix-suggestion-box { background: #f0f4ff; border-radius: 8px; padding: 20px; }
-.fs-title { font-size: 0.9rem; font-weight: 600; color: #3b6ef8; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.fs-title { font-size: 0.9rem; font-weight: 600; color: #1A6AFF; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
 .fs-title span { font-size: 16px; }
 .fs-text { font-size: 0.85rem; color: #4b5563; line-height: 1.6; }
 </style>

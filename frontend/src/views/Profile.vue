@@ -59,10 +59,10 @@
   .page-container { background: #f4f6fb; min-height: 100vh; padding-top: 100px; display: flex; justify-content: center; }
   .setting-card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); width: 450px; }
   .avatar-preview { display: flex; justify-content: center; margin-bottom: 30px; }
-  .large-avatar { width: 80px; height: 80px; background: #3b6ef8; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: bold; }
+  .large-avatar { width: 80px; height: 80px; background: #1A6AFF; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: bold; }
   .input-group { margin-bottom: 20px; }
   .input-group label { display: block; font-size: 0.85rem; color: #4b5563; margin-bottom: 8px; font-weight: 600;}
   .input-group input { width: 100%; padding: 12px; border: 1px solid #e2e4ec; border-radius: 8px; outline: none; box-sizing: border-box; }
-  .input-group input:focus { border-color: #3b6ef8; }
-  .btn-primary { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; background: #3b6ef8; color: white; margin-top: 10px; font-weight: 600;}
+  .input-group input:focus { border-color: #1A6AFF; }
+  .btn-primary { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; background: #1A6AFF; color: white; margin-top: 10px; font-weight: 600;}
   </style>

@@ -17,8 +17,9 @@
           <span class="cur">报告详情</span>
         </div>
 
-        <div class="rpt-layout">
-          <div id="left-col">
+        <div class="rpt-page-stack">
+          <div class="rpt-top-row">
+            <div id="left-col" class="rpt-left-stack">
             <div class="rpt-card score-card">
               <div class="score-card-hdg">设计还原度评分（{{ currentModeName }}）</div>
               <div class="score-body">
@@ -60,12 +61,12 @@
               <div class="distribution-body">
                 <div class="distribution-chart">
                   <div class="chart-item" v-for="(item, idx) in topIssueCategories" :key="idx">
-                    <div class="chart-bar-wrap">
-                      <div class="chart-bar" :style="{ width: item.percentage + '%', background: item.color }"></div>
-                    </div>
                     <div class="chart-info">
                       <span class="chart-label">{{ item.name }}</span>
                       <span class="chart-count">{{ item.count }} 个问题 ({{ item.percentage }}%)</span>
+                    </div>
+                    <div class="chart-bar-wrap">
+                      <div class="chart-bar" :style="{ width: item.percentage + '%', background: item.color }"></div>
                     </div>
                   </div>
                 </div>
@@ -75,69 +76,9 @@
                 </div>
               </div>
             </div>
-
-            <div>
-              <div class="issue-list-hd">
-                <div class="issue-list-title">关键问题清单 <span class="issue-list-cnt">{{ filteredIssues.length }}</span></div>
-              </div>
-              <div class="issue-tabs no-print">
-                <button class="tab-btn" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">
-                  全部问题 <span class="tab-badge">{{ allIssues.length }}</span>
-                </button>
-                <button class="tab-btn" :class="{ active: activeTab === 'visual' }" @click="activeTab = 'visual'">
-                  视觉一致性 <span class="tab-badge">{{ visualIssues.length }}</span>
-                </button>
-                <button class="tab-btn" :class="{ active: activeTab === 'interaction' }" @click="activeTab = 'interaction'">
-                  交互体验 <span class="tab-badge">{{ interactionIssues.length }}</span>
-                </button>
-                <button class="tab-btn" :class="{ active: activeTab === 'content' }" @click="activeTab = 'content'">
-                  文案与话术 <span class="tab-badge">{{ contentIssues.length }}</span>
-                </button>
-              </div>
-
-              <div class="issue-card" v-for="issue in filteredIssues" :key="issue.id">
-                <div class="issue-card-row">
-                  <div class="issue-thumb" @click="openPreview(issue)">
-                    <span class="thumb-mode-badge">{{ currentModeName }}</span>
-                    <div
-                      v-if="reportData.screenshot && issue.rect"
-                      class="real-thumb-crop"
-                      :style="getThumbStyle(issue.rect)"
-                    >
-                      <div class="real-thumb-box" :style="getThumbBoxStyle(issue.rect)"></div>
-                    </div>
-                    <div v-else class="issue-thumb-inner">
-                      <div class="tb tb-light"></div>
-                      <div class="tb tb-red"></div>
-                      <div class="tb tb-light"></div>
-                    </div>
-                    <div class="issue-thumb-footer no-print">点击放大查看</div>
-                  </div>
-                  <div class="issue-body">
-                    <div class="issue-badge-row">
-                      <span class="issue-badge" :class="issue.level === 'high' ? 'badge-critical' : 'badge-warning'">
-                        {{ issue.level === 'high' ? 'CRITICAL' : 'WARNING' }}
-                      </span>
-                      <span class="issue-tag" :style="{ background: getIssueTag(issue).bg, color: getIssueTag(issue).color }">{{ getIssueTag(issue).label }}</span>
-                      <span class="issue-assignee">{{ getCategoryLabel(issue.category) }}</span>
-                    </div>
-                    <div class="issue-title">{{ issue.title }}</div>
-                    <div class="issue-desc">{{ issue.desc }}</div>
-                    <div class="issue-fix">
-                      <div class="issue-fix-label">修复建议：</div>
-                      <div class="issue-fix-text">{{ issue.suggestion }}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="filteredIssues.length === 0" class="empty-state">
-                当前分类下暂无问题。
-              </div>
             </div>
-          </div>
 
-          <div class="rpt-sidebar">
+            <div class="rpt-sidebar">
             <div class="meta-card">
               <div class="meta-card-hd">报告元数据</div>
               <div class="meta-row">
@@ -149,7 +90,7 @@
                 <span class="meta-val">{{ userStore.userInfo ? userStore.userInfo.username : 'Agent' }}</span>
               </div>
               <div class="meta-row">
-                <span class="meta-lbl">基准模式</span>
+                <span class="meta-lbl">走查模式</span>
                 <span class="meta-val">{{ currentModeName }}</span>
               </div>
             </div>
@@ -178,7 +119,7 @@
               <div class="trend-title">近期历史还原度趋势</div>
               <div class="trend-chart" v-if="trendData.length > 0">
                 <div class="bar-wrap" v-for="(item, idx) in trendData" :key="idx">
-                  <div class="bar-val" :style="{ color: idx === trendData.length - 1 ? '#3b6ef8' : '#9ca3af' }">{{ item.score }}%</div>
+                  <div class="bar-val" :style="{ color: idx === trendData.length - 1 ? '#1A6AFF' : '#9ca3af' }">{{ item.score }}%</div>
                   <div class="bar-fill" :class="{ today: idx === trendData.length - 1 }" :style="'height:' + Math.max(item.score * 0.6, 10) + 'px'"></div>
                   <div class="bar-date">{{ item.date }}</div>
                 </div>
@@ -187,8 +128,111 @@
             </div>
           </div>
         </div>
+
+        <div class="rpt-issues-section">
+          <div class="issue-list-hd">
+            <div class="issue-list-title">关键问题清单 <span class="issue-list-cnt">{{ filteredIssues.length }}</span></div>
+          </div>
+          <div class="issue-tabs no-print">
+            <button class="tab-btn" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">
+              全部问题 <span class="tab-badge">{{ allIssues.length }}</span>
+            </button>
+            <button class="tab-btn" :class="{ active: activeTab === 'visual' }" @click="activeTab = 'visual'">
+              视觉一致性 <span class="tab-badge">{{ visualIssues.length }}</span>
+            </button>
+            <button class="tab-btn" :class="{ active: activeTab === 'interaction' }" @click="activeTab = 'interaction'">
+              交互体验 <span class="tab-badge">{{ interactionIssues.length }}</span>
+            </button>
+            <button class="tab-btn" :class="{ active: activeTab === 'content' }" @click="activeTab = 'content'">
+              文案与话术 <span class="tab-badge">{{ contentIssues.length }}</span>
+            </button>
+            <span class="tab-divider" aria-hidden="true"></span>
+            <div class="urgency-group">
+              <button type="button" class="urgency-btn urgency-high" :class="{ 'is-active': activeUrgency === 'high' }" @click="toggleUrgency('high')">
+                高
+              </button>
+              <button type="button" class="urgency-btn urgency-medium" :class="{ 'is-active': activeUrgency === 'medium' }" @click="toggleUrgency('medium')">
+                中
+              </button>
+              <button type="button" class="urgency-btn urgency-low" :class="{ 'is-active': activeUrgency === 'low' }" @click="toggleUrgency('low')">
+                低
+              </button>
+            </div>
+          </div>
+
+          <div class="issue-card" v-for="issue in pagedIssues" :key="issue.id">
+            <div class="issue-card-row">
+              <div class="issue-thumb" @click="openPreview(issue)">
+                <span class="thumb-mode-badge">{{ currentModeName }}</span>
+                <div
+                  v-if="reportData.screenshot && issue.rect"
+                  class="real-thumb-crop"
+                  :style="getThumbStyle(issue.rect)"
+                >
+                  <div class="real-thumb-box" :style="getThumbBoxStyle(issue.rect)"></div>
+                </div>
+                <div v-else class="issue-thumb-inner">
+                  <div class="tb tb-light"></div>
+                  <div class="tb tb-red"></div>
+                  <div class="tb tb-light"></div>
+                </div>
+                <div class="issue-thumb-footer no-print">点击放大查看</div>
+              </div>
+              <div class="issue-body">
+                <div class="issue-badge-row">
+                  <span class="issue-badge" :class="getUrgencyMeta(issue).badgeClass">
+                    {{ getUrgencyMeta(issue).label }}
+                  </span>
+                  <span class="issue-tag" :style="{ background: getIssueTag(issue).bg, color: getIssueTag(issue).color }">{{ getIssueTag(issue).label }}</span>
+                  <span class="issue-assignee">{{ getCategoryLabel(issue.category) }}</span>
+                </div>
+                <div class="issue-title">{{ issue.title }}</div>
+                <div class="issue-desc">{{ issue.desc }}</div>
+                <div class="issue-fix">
+                  <div class="issue-fix-label">修复建议：</div>
+                  <div class="issue-fix-text">{{ issue.suggestion }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="filteredIssues.length === 0" class="empty-state">
+            当前分类下暂无问题。
+          </div>
+
+          <div v-if="filteredIssues.length > 0" class="issue-pagination no-print">
+            <div class="pagination-row">
+              <span class="pagination-total">共 {{ filteredIssues.length }} 条</span>
+              <label class="pagination-size">
+                每页
+                <select v-model.number="issuePageSize" class="pagination-select">
+                  <option v-for="n in issuePageSizeOptions" :key="n" :value="n">{{ n }}</option>
+                </select>
+                条
+              </label>
+              <div class="pagination-nav">
+                <button type="button" class="pagination-btn" :disabled="issuePage <= 1" @click="issuePage--">上一页</button>
+                <span class="pagination-pages">第 {{ issuePage }} / {{ issueTotalPages }} 页</span>
+                <button type="button" class="pagination-btn" :disabled="issuePage >= issueTotalPages" @click="issuePage++">下一页</button>
+              </div>
+              <div class="pagination-jump">
+                <span class="pagination-jump-lbl">跳转</span>
+                <input
+                  v-model="jumpPageInput"
+                  type="text"
+                  inputmode="numeric"
+                  class="pagination-input"
+                  :placeholder="'1-' + issueTotalPages"
+                  @keyup.enter="jumpToIssuePage"
+                />
+                <button type="button" class="pagination-btn pagination-btn-go" @click="jumpToIssuePage">确定</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
+  </div>
   </div>
   <div v-else class="loading-state">加载中...</div>
 
@@ -218,12 +262,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppNavbar from '../components/AppNavbar.vue'
 import { useAuditStore } from '../store/audit'
 import { useUserStore } from '../store/user'
 import axios from 'axios'
+import { getCategoryType, getIssueUrgency as getUrgency } from '../utils/issueUrgency'
 
 const router = useRouter()
 const auditStore = useAuditStore()
@@ -231,27 +276,27 @@ const userStore = useUserStore()
 const reportData = auditStore.reportData
 
 const activeTab = ref('all')
+/** null 表示不按紧急度筛选（显示当前分类下全部） */
+const activeUrgency = ref(null)
+
+const toggleUrgency = (level) => {
+  activeUrgency.value = activeUrgency.value === level ? null : level
+}
 const trendData = ref([])
 const previewIssue = ref(null)
-
-const categoryMapping = {
-  visual: ['视觉', '排版规范', '按钮规范', '表单规范', '导航规范', '展示规范', '间距规范'],
-  interaction: ['交互', '布局', '无障碍'],
-  content: ['质量', '性能与质量', '文案', '话术']
-}
-
-const getCategoryType = (category) => {
-  if (!category) return 'visual'
-  for (const [type, keywords] of Object.entries(categoryMapping)) {
-    if (keywords.some(kw => category.includes(kw))) return type
-  }
-  return 'visual'
-}
 
 const getCategoryLabel = (category) => {
   const labels = { visual: '视觉一致性', interaction: '交互体验', content: '文案与话术' }
   return labels[getCategoryType(category)] || category
 }
+
+const urgencyMetaMap = {
+  high: { label: '高', badgeClass: 'badge-high' },
+  medium: { label: '中', badgeClass: 'badge-medium' },
+  low: { label: '低', badgeClass: 'badge-low' }
+}
+
+const getUrgencyMeta = (issue) => urgencyMetaMap[getUrgency(issue)] || urgencyMetaMap.low
 
 const issueTagMap = [
   { keywords: ['字体', '字号', '字阶', 'font'], label: '字体', bg: '#eef2ff', color: '#4338ca' },
@@ -288,7 +333,11 @@ const getIssueTag = (issue) => {
 const isDesignMode = computed(() => auditStore.checkMode === 'design')
 
 const currentModeName = computed(() => {
-  return auditStore.checkMode === 'baseline' ? '基准值模式' : '设计稿模式'
+  const m = auditStore.checkMode
+  if (m === 'baseline' || m === 'static_scan') return '基准值模式'
+  if (m === 'design') return '设计稿模式'
+  if (m === 'component') return '组件模式'
+  return '基准值模式'
 })
 
 const scoreBadgeClass = computed(() => {
@@ -311,12 +360,73 @@ const visualIssues = computed(() => allIssues.value.filter(i => getCategoryType(
 const interactionIssues = computed(() => allIssues.value.filter(i => getCategoryType(i.category) === 'interaction'))
 const contentIssues = computed(() => allIssues.value.filter(i => getCategoryType(i.category) === 'content'))
 
-const filteredIssues = computed(() => {
+const categoryFilteredIssues = computed(() => {
   if (activeTab.value === 'visual') return visualIssues.value
   if (activeTab.value === 'interaction') return interactionIssues.value
   if (activeTab.value === 'content') return contentIssues.value
   return allIssues.value
 })
+
+const urgencyCounts = computed(() => ({
+  high: categoryFilteredIssues.value.filter(i => getUrgency(i) === 'high').length,
+  medium: categoryFilteredIssues.value.filter(i => getUrgency(i) === 'medium').length,
+  low: categoryFilteredIssues.value.filter(i => getUrgency(i) === 'low').length
+}))
+
+const issuePageSizeOptions = [10, 20, 50, 100]
+const issuePageSize = ref(20)
+const issuePage = ref(1)
+const jumpPageInput = ref('')
+
+watch(activeTab, () => {
+  issuePage.value = 1
+  if (activeUrgency.value !== null && urgencyCounts.value[activeUrgency.value] === 0) {
+    activeUrgency.value = null
+  }
+})
+
+watch(activeUrgency, () => {
+  issuePage.value = 1
+})
+
+const filteredIssues = computed(() => {
+  if (activeUrgency.value === null) return categoryFilteredIssues.value
+  return categoryFilteredIssues.value.filter(i => getUrgency(i) === activeUrgency.value)
+})
+
+const issueTotalPages = computed(() => {
+  const total = filteredIssues.value.length
+  if (total === 0) return 1
+  return Math.ceil(total / issuePageSize.value)
+})
+
+const pagedIssues = computed(() => {
+  const list = filteredIssues.value
+  const size = issuePageSize.value
+  const maxPage = Math.max(1, Math.ceil(list.length / size) || 1)
+  const page = Math.min(Math.max(1, issuePage.value), maxPage)
+  const start = (page - 1) * size
+  return list.slice(start, start + size)
+})
+
+watch(issuePageSize, () => {
+  issuePage.value = 1
+})
+
+watch([filteredIssues, issuePageSize], () => {
+  const total = filteredIssues.value.length
+  const maxPage = Math.max(1, Math.ceil(total / issuePageSize.value) || 1)
+  if (issuePage.value > maxPage) issuePage.value = maxPage
+}, { deep: true })
+
+const jumpToIssuePage = () => {
+  const raw = String(jumpPageInput.value).trim()
+  if (!raw) return
+  const p = parseInt(raw, 10)
+  if (Number.isNaN(p) || p < 1) return
+  issuePage.value = Math.min(p, issueTotalPages.value)
+  jumpPageInput.value = ''
+}
 
 const dimensionScores = computed(() => {
   const calc = (issues) => {
@@ -340,7 +450,7 @@ const topIssueCategories = computed(() => {
   })
   const total = allIssues.value.length || 1
   const cats = [
-    { name: '视觉一致性', key: 'visual', color: '#3b6ef8' },
+    { name: '视觉一致性', key: 'visual', color: '#1A6AFF' },
     { name: '交互体验', key: 'interaction', color: '#f59e0b' },
     { name: '文案与话术', key: 'content', color: '#10b981' }
   ]
@@ -447,12 +557,31 @@ const getPreviewBoxStyle = (rect) => {
 .rpt-inner { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
 .rpt-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #9ca3af; margin-bottom: 22px; }
 .rpt-breadcrumb a { color: #6b7280; text-decoration: none; }
-.rpt-breadcrumb a:hover { color: #3b6ef8; }
+.rpt-breadcrumb a:hover { color: #1A6AFF; }
 .rpt-breadcrumb .cur { color: #1a1d2e; font-weight: 500; }
-.rpt-layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: flex-start; }
+.rpt-page-stack { width: 100%; }
+.rpt-top-row {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 20px;
+  align-items: stretch;
+}
+.rpt-left-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  height: 100%;
+}
+.rpt-left-stack > .rpt-card { margin-bottom: 0; }
+.rpt-issues-section {
+  width: 100%;
+  margin-top: 20px;
+  min-width: 0;
+}
 .btn { border: none; font-family: inherit; cursor: pointer; transition: all 0.2s; font-weight: 600; }
-.btn-primary { background: #3b6ef8; color: white; border-radius: 6px; padding: 8px 16px; font-size: 0.85rem; }
-.btn-primary:hover { background: #256af4; }
+.btn-primary { background: #1A6AFF; color: white; border-radius: 6px; padding: 8px 16px; font-size: 0.85rem; }
+.btn-primary:hover { background: #1557e6; }
 .btn-ghost { background: transparent; color: #6b7280; border: 1px solid #e8eaf0; border-radius: 6px; padding: 8px 16px; font-size: 0.85rem; }
 .btn-ghost:hover { background: #f9fafb; color: #1a1d2e; }
 .rpt-card { background: #fff; border: 1px solid #e8eaf0; border-radius: 14px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(60,72,120,.04); overflow: hidden; }
@@ -462,9 +591,9 @@ const getPreviewBoxStyle = (rect) => {
 .ring-wrap { position: relative; width: 110px; height: 110px; flex-shrink: 0; }
 .ring-svg { transform: rotate(-90deg); }
 .ring-bg { fill: none; stroke: #eef2ff; stroke-width: 10; }
-.ring-fg { fill: none; stroke: #3b6ef8; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+.ring-fg { fill: none; stroke: #1A6AFF; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
 .ring-label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.ring-pct { font-size: 1.6rem; font-weight: 800; color: #3b6ef8; line-height: 1; }
+.ring-pct { font-size: 1.6rem; font-weight: 800; color: #1A6AFF; line-height: 1; }
 .ring-sub { font-size: 0.68rem; color: #9ca3af; margin-top: 3px; }
 .score-detail { flex: 1; }
 .score-badge { display: inline-flex; padding: 4px 12px; border-radius: 99px; font-size: 0.78rem; font-weight: 600; margin-bottom: 12px; }
@@ -476,9 +605,15 @@ const getPreviewBoxStyle = (rect) => {
 .stat-block { flex: 1; min-width: 80px; }
 .stat-val { font-size: 1.2rem; font-weight: 800; color: #1a1d2e; }
 .stat-label { font-size: 0.75rem; color: #9ca3af; margin-top: 4px; }
-.distribution-card { padding: 22px 24px; }
-.distribution-hd { font-size: 1rem; font-weight: 700; color: #1a1d2e; margin-bottom: 18px; }
-.distribution-body { display: flex; flex-direction: column; gap: 20px; }
+.distribution-card {
+  padding: 22px 24px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.distribution-hd { font-size: 1rem; font-weight: 700; color: #1a1d2e; margin-bottom: 18px; flex-shrink: 0; }
+.distribution-body { display: flex; flex-direction: column; gap: 20px; flex: 1; min-height: 0; }
 .distribution-chart { display: flex; flex-direction: column; gap: 12px; }
 .chart-item { display: flex; flex-direction: column; gap: 6px; }
 .chart-bar-wrap { width: 100%; height: 8px; background: #f3f4f6; border-radius: 4px; overflow: hidden; }
@@ -486,18 +621,93 @@ const getPreviewBoxStyle = (rect) => {
 .chart-info { display: flex; justify-content: space-between; align-items: center; }
 .chart-label { font-size: 0.85rem; font-weight: 600; color: #1a1d2e; }
 .chart-count { font-size: 0.8rem; color: #6b7280; }
-.distribution-summary { background: #f8faff; border-left: 3px solid #3b6ef8; padding: 14px 16px; border-radius: 0 8px 8px 0; }
-.summary-label { font-size: 0.75rem; color: #3b6ef8; font-weight: 700; margin-bottom: 8px; }
-.summary-text { font-size: 0.85rem; color: #4b5563; line-height: 1.6; }
+.distribution-summary {
+  background: #f8faff;
+  border-left: 3px solid #1A6AFF;
+  padding: 14px 16px;
+  border-radius: 0 8px 8px 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+}
+.summary-label { font-size: 0.75rem; color: #1A6AFF; font-weight: 700; margin-bottom: 8px; flex-shrink: 0; }
+.summary-text { font-size: 0.85rem; color: #4b5563; line-height: 1.6; flex: 1; min-height: 4em; overflow-y: auto; }
 .issue-list-hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .issue-list-title { font-weight: 700; font-size: 1rem; color: #1a1d2e; }
 .issue-list-cnt { background: #f3f4f6; color: #6b7280; font-size: 0.78rem; font-weight: 600; padding: 2px 8px; border-radius: 99px; margin-left: 6px; }
-.issue-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 2px solid #e8eaf0; }
-.tab-btn { padding: 10px 16px; border: none; background: transparent; font-size: 0.85rem; color: #6b7280; cursor: pointer; transition: all 0.2s; font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -2px; }
-.tab-btn:hover { color: #3b6ef8; }
-.tab-btn.active { color: #3b6ef8; border-bottom-color: #3b6ef8; }
+.issue-tabs { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid #e8eaf0; overflow: visible; }
+.tab-btn { padding: 10px 16px; border: none; background: transparent; font-size: 0.85rem; color: #6b7280; cursor: pointer; transition: color 0.2s, border-color 0.2s; font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.tab-btn:hover { color: #1A6AFF; }
+.tab-btn.active { color: #1A6AFF; border-bottom-color: #1A6AFF; }
 .tab-badge { display: inline-block; background: #f3f4f6; color: #6b7280; font-size: 0.7rem; padding: 2px 6px; border-radius: 99px; margin-left: 6px; font-weight: 600; }
-.tab-btn.active .tab-badge { background: #dbeafe; color: #3b6ef8; }
+.tab-btn.active .tab-badge { background: #dbeafe; color: #1A6AFF; }
+.tab-divider { width: 1px; height: 14px; background: #e5e7eb; margin: 0 6px 0 2px; flex-shrink: 0; align-self: center; }
+.urgency-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+.urgency-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-width: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: center;
+  margin-bottom: -2px;
+  opacity: 0.72;
+  transform: scale(1);
+  transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.urgency-btn:hover,
+.urgency-btn:focus-visible {
+  color: #fff;
+  outline: none;
+  opacity: 1;
+}
+.urgency-btn.is-active {
+  color: #fff;
+  outline: none;
+  opacity: 1;
+  animation: urgency-active-glow 1.25s ease-in-out infinite;
+}
+@keyframes urgency-active-glow {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.55), 0 4px 10px rgba(0, 0, 0, 0.12);
+  }
+}
+.urgency-btn:focus-visible { box-shadow: 0 0 0 2px rgba(26, 106, 255, 0.35); }
+.urgency-btn.is-active:focus-visible { animation: urgency-active-glow 1.25s ease-in-out infinite; }
+.urgency-high { background: #ef4444; }
+.urgency-high:hover,
+.urgency-high:focus-visible,
+.urgency-high.is-active { background: #ef4444; }
+.urgency-medium { background: #fbbf24; }
+.urgency-medium:hover,
+.urgency-medium:focus-visible,
+.urgency-medium.is-active { background: #fbbf24; }
+.urgency-low { background: #3b82f6; }
+.urgency-low:hover,
+.urgency-low:focus-visible,
+.urgency-low.is-active { background: #3b82f6; }
 .issue-card { background: #fff; border: 1px solid #e8eaf0; border-radius: 12px; overflow: hidden; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(60,72,120,.05); transition: transform 0.2s, box-shadow 0.2s; }
 .issue-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(60,72,120,.08); }
 .issue-card-row { display: flex; }
@@ -510,11 +720,11 @@ const getPreviewBoxStyle = (rect) => {
 .tb-light { background: rgba(255,255,255,.55); flex: 1; }
 .tb-red { border: 2px solid rgba(239,68,68,.8); background: rgba(239,68,68,.08); flex: 1.5; }
 .issue-thumb-footer { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.5); color: #fff; font-size: 0.7rem; text-align: center; padding: 5px 0; z-index: 10; }
-.issue-thumb:hover .issue-thumb-footer { background: rgba(59,110,248,.8); }
+.issue-thumb:hover .issue-thumb-footer { background: rgba(26, 106, 255,.8); }
 .preview-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
 .preview-modal { background: #fff; border-radius: 14px; max-width: 80vw; max-height: 85vh; overflow: hidden; box-shadow: 0 24px 50px rgba(0,0,0,.3); display: flex; flex-direction: column; }
 .preview-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #e8eaf0; }
-.preview-mode-badge { font-size: 0.7rem; background: #3b6ef8; color: #fff; padding: 3px 10px; border-radius: 4px; font-weight: 600; }
+.preview-mode-badge { font-size: 0.7rem; background: #1A6AFF; color: #fff; padding: 3px 10px; border-radius: 4px; font-weight: 600; }
 .preview-title { font-weight: 700; font-size: 1rem; color: #1a1d2e; flex: 1; }
 .preview-close { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #9ca3af; padding: 4px 8px; border-radius: 4px; }
 .preview-close:hover { background: #f3f4f6; color: #1a1d2e; }
@@ -527,29 +737,50 @@ const getPreviewBoxStyle = (rect) => {
 .issue-body { flex: 1; padding: 20px 24px; display: flex; flex-direction: column; gap: 8px; }
 .issue-badge-row { display: flex; align-items: center; gap: 12px; }
 .issue-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; font-weight: 800; padding: 3px 10px; border-radius: 4px; letter-spacing: .04em; color: white; }
-.badge-critical { background: #ef4444; }
-.badge-warning { background: #f59e0b; }
+.badge-high { background: #ef4444; }
+.badge-medium { background: #fbbf24; color: #fff; }
+.badge-low { background: #3b82f6; }
 .issue-assignee { font-size: 0.78rem; color: #9ca3af; margin-left: auto; font-weight: 500; }
 .issue-tag { font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
 .issue-title { font-weight: 700; font-size: 1rem; color: #1a1d2e; }
 .issue-desc { font-size: 0.85rem; color: #6b7280; line-height: 1.6; }
-.issue-fix { background: #f8faff; border-left: 3px solid #3b6ef8; padding: 10px 14px; margin-top: 4px; border-radius: 0 6px 6px 0; }
-.issue-fix-label { font-size: 0.75rem; color: #3b6ef8; font-weight: 700; margin-bottom: 4px; }
+.issue-fix { background: #f8faff; border-left: 3px solid #1A6AFF; padding: 10px 14px; margin-top: 4px; border-radius: 0 6px 6px 0; }
+.issue-fix-label { font-size: 0.75rem; color: #1A6AFF; font-weight: 700; margin-bottom: 4px; }
 .issue-fix-text { font-size: 0.8rem; font-family: monospace; color: #4b5563; }
 .empty-state { text-align: center; padding: 40px; color: #9ca3af; background: white; border-radius: 12px; border: 1px solid #e8eaf0; }
-.rpt-sidebar { display: flex; flex-direction: column; }
+.issue-pagination { margin-top: 8px; padding: 16px 18px; background: #fff; border: 1px solid #e8eaf0; border-radius: 12px; box-shadow: 0 1px 3px rgba(60,72,120,.05); }
+.pagination-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; font-size: 0.82rem; color: #6b7280; }
+.pagination-total { font-weight: 600; color: #4b5563; }
+.pagination-size { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.pagination-select { border: 1px solid #e8eaf0; border-radius: 6px; padding: 6px 28px 6px 10px; font-size: 0.82rem; font-family: inherit; color: #1a1d2e; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E") no-repeat right 8px center; cursor: pointer; appearance: none; }
+.pagination-select:hover { border-color: #c7d2fe; }
+.pagination-nav { display: inline-flex; align-items: center; gap: 10px; }
+.pagination-pages { font-weight: 600; color: #1a1d2e; min-width: 7em; text-align: center; }
+.pagination-btn { border: 1px solid #e8eaf0; background: #fff; border-radius: 6px; padding: 6px 12px; font-size: 0.8rem; font-weight: 600; color: #4b5563; cursor: pointer; font-family: inherit; transition: border-color 0.15s, color 0.15s; }
+.pagination-btn:hover:not(:disabled) { border-color: #1A6AFF; color: #1A6AFF; }
+.pagination-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pagination-btn-go { background: #1A6AFF; border-color: #1A6AFF; color: #fff; }
+.pagination-btn-go:hover:not(:disabled) { background: #1557e6; border-color: #1557e6; color: #fff; }
+.pagination-jump { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.pagination-jump-lbl { white-space: nowrap; }
+.pagination-input { width: 52px; border: 1px solid #e8eaf0; border-radius: 6px; padding: 6px 8px; font-size: 0.82rem; text-align: center; font-family: inherit; }
+.pagination-input:focus { outline: none; border-color: #1A6AFF; box-shadow: 0 0 0 2px rgba(26, 106, 255, 0.15); }
+@media (max-width: 720px) {
+  .pagination-jump { margin-left: 0; width: 100%; }
+}
+.rpt-sidebar { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .meta-card { background: #fff; border: 1px solid #e8eaf0; border-radius: 14px; box-shadow: 0 1px 4px rgba(60,72,120,.06); overflow: hidden; }
 .meta-card-hd { padding: 14px 20px; font-weight: 700; font-size: 0.9rem; background: #fafbff; border-bottom: 1px solid #f0f1f6; color: #1a1d2e; }
 .meta-row { display: flex; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid #f4f5f9; font-size: 0.85rem; }
 .meta-row:last-child { border-bottom: none; }
 .meta-lbl { color: #9ca3af; }
 .meta-val { font-weight: 600; text-align: right; color: #4b5563; }
-.meta-val a { color: #3b6ef8; text-decoration: none; }
+.meta-val a { color: #1A6AFF; text-decoration: none; }
 .snapshot-card { padding: 15px; margin-top: 15px; }
 .snapshot-title { font-weight: bold; font-size: 0.84rem; margin-bottom: 10px; }
 .snapshot-img { width: 100%; border: 1px solid #e8eaf0; border-radius: 8px; cursor: pointer; }
 .snapshot-placeholder { padding: 40px 10px; text-align: center; background: #f9fafb; color: #9ca3af; font-size: 0.8rem; border-radius: 8px; border: 1px dashed #e8eaf0; }
-.help-card { background: #3b6ef8; border-radius: 14px; padding: 20px; color: #fff; margin-top: 15px; }
+.help-card { background: #1A6AFF; border-radius: 14px; padding: 20px; color: #fff; margin-top: 15px; }
 .help-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 8px; }
 .help-desc { font-size: 0.8rem; opacity: .9; margin-bottom: 16px; line-height: 1.5; }
 .help-btn-wrap { position: relative; display: inline-block; width: 100%; }
@@ -563,11 +794,16 @@ const getPreviewBoxStyle = (rect) => {
 .trend-chart { display: flex; align-items: flex-end; gap: 10px; height: 80px; }
 .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; justify-content: flex-end; }
 .bar-fill { width: 100%; border-radius: 4px 4px 0 0; background: #dbeafe; transition: height 0.5s ease; min-height: 4px; }
-.bar-fill.today { background: #3b6ef8; }
+.bar-fill.today { background: #1A6AFF; }
 .bar-val { font-size: 0.7rem; font-weight: 800; order: -1; }
 .bar-date { font-size: 0.65rem; color: #9ca3af; font-weight: 500; }
 .trend-empty { font-size: 0.8rem; color: #9ca3af; text-align: center; padding: 15px 0; }
 .loading-state { padding: 100px; text-align: center; }
+@media (max-width: 900px) {
+  .rpt-top-row { grid-template-columns: 1fr; }
+  .rpt-left-stack { height: auto; }
+  .distribution-card { flex: 0 1 auto; }
+}
 @media print {
   .no-print { display: none !important; }
   .rpt-body { background: white !important; }
