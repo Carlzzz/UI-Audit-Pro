@@ -146,7 +146,7 @@
   .scan-wrapper { background: var(--bg-page); min-height: 100vh; }
   .scan-page { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px 40px; }
   .scan-preview { width: 340px; max-width: 90%; background: white; border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-lg); margin-bottom: 36px; position: relative; overflow: hidden; }
-  .scan-preview::before { content: ''; position: absolute; top: 0; left: -100%; width: 60%; height: 100%; background: linear-gradient(90deg, transparent, rgba(59, 110, 248, 0.08), transparent); animation: scan-sweep 2s linear infinite; }
+  .scan-preview::before { content: ''; position: absolute; top: 0; left: -100%; width: 60%; height: 100%; background: linear-gradient(90deg, transparent, rgba(26, 106, 255, 0.08), transparent); animation: scan-sweep 2s linear infinite; }
   @keyframes scan-sweep { 0% { left: -60%; } 100% { left: 100%; } }
   .preview-topbar { height: 10px; background: #e2e8f0; border-radius: 5px; margin-bottom: 12px; width: 70%; }
   .preview-highlight { height: 4px; background: linear-gradient(90deg, var(--primary), var(--secondary)); border-radius: 2px; margin-bottom: 12px; width: 100%; }

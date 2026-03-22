@@ -2,7 +2,9 @@
   <nav class="app-navbar" :class="variant">
     <!-- Logo 品牌区 -->
     <a href="#" @click.prevent="goTo('/')" class="navbar-brand">
-      <div class="logo-icon">✦</div>
+      <div class="logo-icon" aria-hidden="true">
+        <IconStroke name="sparkle" size="md" class="logo-mark" />
+      </div>
       <span>{{ brandText }}</span>
     </a>
 
@@ -42,10 +44,10 @@
         </div>
         <div class="dropdown-menu" v-if="showDropdown">
           <div class="dropdown-header">你好，{{ userStore.userInfo?.username }}</div>
-          <div class="dropdown-item" @click="goTo('/profile')">👤 个人信息</div>
-          <div class="dropdown-item" @click="goTo('/change-password')">🔒 修改密码</div>
+          <div class="dropdown-item" @click="goTo('/profile')"><IconStroke name="user" size="sm" class="nav-dd-icon" /> 个人信息</div>
+          <div class="dropdown-item" @click="goTo('/change-password')"><IconStroke name="lock" size="sm" class="nav-dd-icon" /> 修改密码</div>
           <div class="dropdown-divider"></div>
-          <div class="dropdown-item text-danger" @click="handleLogout">🚪 退出登录</div>
+          <div class="dropdown-item text-danger" @click="handleLogout"><IconStroke name="logout" size="sm" class="nav-dd-icon" /> 退出登录</div>
         </div>
       </div>
     </div>
@@ -57,6 +59,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
 import { showConfirm } from '../utils/modal'
+import IconStroke from './IconStroke.vue'
 
 defineProps({
   /** full: 导航链接 | breadcrumb: 面包屑 | simple: 仅 Logo | scan: 扫描页 | custom: 完全自定义中间区 */
@@ -112,13 +115,31 @@ const handleLogout = async () => {
 .logo-icon {
   width: 34px;
   height: 34px;
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  flex-shrink: 0;
+  background: linear-gradient(145deg, #6366f1 0%, #4f6fff 45%, #1a6aff 100%);
+  border: none;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  font-size: 16px;
+  color: #fff;
+  font-size: 0;
+  line-height: 0;
+  box-shadow: 0 1px 3px rgba(26, 106, 255, 0.25);
+}
+/* sparkle 在 viewBox 内笔画偏上，几何居中后略下移以视觉居中 */
+.logo-icon :deep(svg.logo-mark.icon-stroke) {
+  display: block;
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px;
+  min-height: 24px;
+  margin: 0;
+  color: #fff;
+  vertical-align: unset;
+  flex-shrink: 0;
+  transform: translateY(3px);
+  transform-origin: center center;
 }
 .navbar-nav {
   display: flex;
@@ -203,7 +224,11 @@ const handleLogout = async () => {
   color: var(--text-secondary);
   cursor: pointer;
   transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+.nav-dd-icon { flex-shrink: 0; opacity: 0.9; }
 .dropdown-item:hover { background: var(--primary-light); color: var(--primary); }
 .dropdown-divider { height: 1px; background: var(--border); }
 .dropdown-item.text-danger { color: var(--danger); }

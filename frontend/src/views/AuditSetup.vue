@@ -1,17 +1,36 @@
 <template>
   <div class="page-container">
     <AppNavbar variant="full" active-key="scan" />
+    <SpecAddFloat
+      v-model:open="specFloat.open"
+      :left="specFloat.left"
+      :top="specFloat.top"
+      :title="specFloat.title"
+      :field-label="specFloat.fieldLabel"
+      :default-val="specFloat.defaultVal"
+      :mode="specFloat.mode"
+      @confirm="onSpecFloatConfirm"
+    />
+    <SpecColorFloat
+      v-model:open="colorFloat.open"
+      :left="colorFloat.left"
+      :top="colorFloat.top"
+      :title="colorFloat.title"
+      :initial-label="colorFloat.label"
+      :initial-hex="colorFloat.hex"
+      @confirm="onColorFloatConfirm"
+    />
     <div class="config-layout">
       <!-- 左侧边栏 -->
       <div class="sidebar" style="display:none;">
         <div class="sidebar-title">规范管理</div>
         <div class="nav-item" :class="{active: activeTab === 'baseline'}" @click="activeTab = 'baseline'">
-           <span class="icon">↹</span> 基准值模式
+           <span class="icon" aria-hidden="true"><IconStroke name="baseline" size="sm" /></span> 基准值模式
         </div>
         <div class="nav-group">
           <div class="nav-item group-title" :class="{active: activeTab === 'component'}" @click="activeTab = 'component'; expandComponents = !expandComponents">
-            <span class="icon">品</span> 组件模式
-            <span class="arrow">{{ expandComponents ? '▲' : '▼' }}</span>
+            <span class="icon" aria-hidden="true"><IconStroke name="component" size="sm" /></span> 组件模式
+            <span class="arrow" aria-hidden="true"><IconStroke name="chevron-down" size="sm" class="nav-chevron" :class="{ open: expandComponents }" /></span>
           </div>
           <div class="sub-nav" v-show="expandComponents && activeTab === 'component'">
             <div class="sub-item">全局基础规范</div>
@@ -21,16 +40,17 @@
           </div>
         </div>
         <div class="nav-item" :class="{active: activeTab === 'design'}" @click="activeTab = 'design'">
-           <span class="icon">🖼</span> 设计稿模式
+           <span class="icon" aria-hidden="true"><IconStroke name="design" size="sm" /></span> 设计稿模式
         </div>
       </div>
 
       <!-- 右侧主体区 -->
       <div class="main-content">
+        <div class="config-panel-sheet">
         <div class="content-header">
           <div>
-            <div class="breadcrumb">新建走查 <span class="sep">/</span> <span class="cur">{{ activeTab === 'baseline' ? '基准值模式走查' : (activeTab.startsWith('comp_') ? '组件模式走查' : '设计稿模式走查') }}</span></div>
-            <h2>{{ activeTab === 'baseline' ? '基准值模式走查' : (activeTab.startsWith('comp_') ? '组件模式走查' : '设计稿模式走查') }}</h2>
+            <div class="breadcrumb">新建走查 <span class="sep">/</span> <span class="cur">{{ activeTab === 'baseline' ? '基准值模式' : (activeTab.startsWith('comp_') ? '组件模式' : '设计稿模式') }}</span></div>
+            <h2>{{ activeTab === 'baseline' ? '基准值模式' : (activeTab.startsWith('comp_') ? '组件模式' : '设计稿模式') }}</h2>
             <p class="subtitle">定义设计走查的全局基准规范或接入设计资源</p>
           </div>
           <div class="toggle-group-top" @click="activeTab === 'baseline' ? baselineConfig.globalEnable = !baselineConfig.globalEnable : (activeTab.startsWith('comp_') ? componentConfig.globalEnable = !componentConfig.globalEnable : designConfig.globalEnable = !designConfig.globalEnable)">
@@ -41,20 +61,23 @@
 
         <div v-if="activeTab === 'baseline'" class="form-container">
           <!-- 1. 视觉一致性标准 -->
-          <div class="section-title"><span class="icon blue">✨</span> 1. 视觉一致性标准</div>
+          <div class="section-title">
+            <span class="section-icon" aria-hidden="true"><IconStroke name="palette" size="md" /></span>
+            1. 视觉一致性标准
+          </div>
           <div class="grid-2 align-start">
             <div class="col-left">
               <!-- 全局色盘 -->
               <div class="card mb-4">
-                <h4>◎ 全局色盘</h4>
+                <h4>全局色盘</h4>
                 <div class="color-list">
-                  <div class="color-row" v-for="(color, idx) in baselineConfig.colors" :key="idx" @click="editColor(idx)" style="cursor:pointer;">
+                  <div class="color-row" v-for="(color, idx) in baselineConfig.colors" :key="idx" @click.stop="editColor($event, idx)" style="cursor:pointer;">
                     <div class="color-box" :style="{background: color.hex}"></div>
                     <div class="color-name">{{color.label}}</div>
                     <div class="color-hex">{{color.hex}}</div>
                     <button class="btn-del" @click.stop="baselineConfig.colors.splice(idx, 1)">🗑</button>
                   </div>
-                  <div class="btn-add" @click="addColor">+ 添加色值</div>
+                  <div class="btn-add" @click.stop="addColor($event)">+ 添加色值</div>
                   <div class="form-row mt-3">
                     <label>偏差阈值：</label>
                     <input type="text" v-model="baselineConfig.colorThreshold" class="input-sm" style="width:80px; padding:4px; border:1px solid #e2e4ec; border-radius:4px;" />
@@ -64,14 +87,15 @@
 
               <!-- 栅格与圆角 -->
               <div class="card mb-4">
-                <h4>⊞ 栅格与圆角</h4>
+                <h4>栅格与圆角</h4>
                 <div class="form-row mt-2" @click="baselineConfig.gridCheck = !baselineConfig.gridCheck">
-                  <label>栅格对齐检测 (px)</label>
+                  <label>栅格对齐检测（px 倍数）</label>
                   <div class="toggle" :class="{on: baselineConfig.gridCheck}"></div>
                 </div>
+                <p class="field-hint">填写栅格基准 px（如 8、4）。走查时宽度及容器 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
                 <div class="tags mt-2">
                   <span class="tag" v-for="(t, idx) in baselineConfig.gridTokens" :key="'g'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.gridTokens, idx)">🗑</span></span>
-                  <span class="tag-add" @click="addToken(baselineConfig.gridTokens, '8px')">+ 添加</span>
+                  <span class="tag-add" @click="addToken($event, baselineConfig.gridTokens, '8px', '添加栅格基准值')">+ 添加</span>
                 </div>
                 
                 <div class="form-row mt-4" @click="baselineConfig.radiusCheck = !baselineConfig.radiusCheck">
@@ -80,13 +104,13 @@
                 </div>
                 <div class="tags mt-2">
                   <span class="tag" v-for="(t, idx) in baselineConfig.radiusTokens" :key="'r'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.radiusTokens, idx)">🗑</span></span>
-                  <span class="tag-add" @click="addToken(baselineConfig.radiusTokens, '16px')">+ 添加</span>
+                  <span class="tag-add" @click="addToken($event, baselineConfig.radiusTokens, '16px', '添加圆角值')">+ 添加</span>
                 </div>
               </div>
 
               <!-- 动画与过渡 -->
               <div class="card mb-4">
-                <h4>🎞 动画与过渡</h4>
+                <h4>动画与过渡</h4>
                 <div class="form-row mt-2" @click="baselineConfig.transitionCheck = !baselineConfig.transitionCheck">
                   <label>过渡持续时间</label>
                   <div class="toggle" :class="{on: baselineConfig.transitionCheck}"></div>
@@ -95,12 +119,48 @@
                    <input type="text" v-model="baselineConfig.transitions" />
                 </div>
               </div>
+
+              <!-- 按钮与输入框 -->
+              <div class="card mb-4">
+                <h4>按钮与输入框</h4>
+                <p class="field-hint">本区块在规范页中的排版顺序参考左侧「栅格与圆角」；高度走查与栅格倍数无关。</p>
+                <div class="form-group mt-2">
+                  <div
+                    class="form-row"
+                    role="switch"
+                    :aria-checked="baselineConfig.buttonHeightCheck"
+                    @click="baselineConfig.buttonHeightCheck = !baselineConfig.buttonHeightCheck"
+                  >
+                    <label>按钮高度（px，须与实测一致）</label>
+                    <div class="toggle" :class="{on: baselineConfig.buttonHeightCheck}" aria-hidden="true"></div>
+                  </div>
+                  <div class="tags mt-2">
+                    <span class="tag" v-for="(t, idx) in baselineConfig.buttonHeightTokens" :key="'bh'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.buttonHeightTokens, idx)">✕</span></span>
+                    <span class="tag-add" @click="addToken($event, baselineConfig.buttonHeightTokens, '32px', '添加按钮高度规范值')">+ 添加</span>
+                  </div>
+                </div>
+                <div class="form-group mt-2">
+                  <div
+                    class="form-row"
+                    role="switch"
+                    :aria-checked="baselineConfig.inputSelectHeightCheck"
+                    @click="baselineConfig.inputSelectHeightCheck = !baselineConfig.inputSelectHeightCheck"
+                  >
+                    <label>输入框/选择器高度（px，须与实测一致）</label>
+                    <div class="toggle" :class="{on: baselineConfig.inputSelectHeightCheck}" aria-hidden="true"></div>
+                  </div>
+                  <div class="tags mt-2">
+                    <span class="tag" v-for="(t, idx) in baselineConfig.inputHeightTokens" :key="'ih'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.inputHeightTokens, idx)">✕</span></span>
+                    <span class="tag-add" @click="addToken($event, baselineConfig.inputHeightTokens, '32px', '添加输入框/选择器高度规范值')">+ 添加</span>
+                  </div>
+                </div>
+              </div>
             </div>
             
             <div class="col-right">
               <!-- 字体与排版 -->
               <div class="card mb-4">
-                <h4>Tr 字体与排版</h4>
+                <h4>字体与排版</h4>
                 <div class="form-group">
                   <label>字体族</label>
                   <input type="text" v-model="baselineConfig.fontFamily" />
@@ -118,17 +178,18 @@
                   <input type="text" v-model="baselineConfig.fontWeights" />
                 </div>
                 <div class="form-group">
-                  <label>间距规范</label>
+                  <label>间距规范（px 倍数）</label>
+                  <p class="field-hint">填写间距基准 px（如 4、8）。走查时 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
                   <div class="tags">
                     <span class="tag" v-for="(t, idx) in baselineConfig.spacingTokens" :key="'s'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.spacingTokens, idx)">✕</span></span>
-                    <span class="tag-add" @click="addToken(baselineConfig.spacingTokens, '24px')">+ 添加</span>
+                    <span class="tag-add" @click="addToken($event, baselineConfig.spacingTokens, '8px', '添加间距基准值')">+ 添加</span>
                   </div>
                 </div>
               </div>
 
               <!-- 阴影与图标 -->
               <div class="card mb-4">
-                <h4>◈ 阴影与图标</h4>
+                <h4>阴影与图标</h4>
                 <div class="form-row mt-2" @click="baselineConfig.shadowCheck = !baselineConfig.shadowCheck">
                   <label>投影规范</label>
                   <div class="toggle" :class="{on: baselineConfig.shadowCheck}"></div>
@@ -146,7 +207,7 @@
                 </div>
                 <div class="tags mt-2">
                   <span class="tag" v-for="(t, idx) in baselineConfig.iconTokens" :key="'i'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.iconTokens, idx)">🗑</span></span>
-                  <span class="tag-add" @click="addToken(baselineConfig.iconTokens, '24*24px')">+ 添加</span>
+                  <span class="tag-add" @click="addToken($event, baselineConfig.iconTokens, '24*24px', '添加图标尺寸')">+ 添加</span>
                 </div>
 
                 <div class="form-row mt-4" @click="baselineConfig.iconStyleCheck = !baselineConfig.iconStyleCheck">
@@ -158,7 +219,7 @@
                   <label>图标描边粗细</label>
                   <div class="tags">
                     <span class="tag" v-for="(t, idx) in baselineConfig.iconStrokeTokens" :key="'is'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.iconStrokeTokens, idx)">🗑</span></span>
-                    <span class="tag-add" @click="addToken(baselineConfig.iconStrokeTokens, '2.5px')">+ 添加</span>
+                    <span class="tag-add" @click="addToken($event, baselineConfig.iconStrokeTokens, '2.5px', '添加描边粗细')">+ 添加</span>
                   </div>
                 </div>
               </div>
@@ -166,7 +227,10 @@
           </div>
 
           <!-- 2. 交互与布局标准 -->
-          <div class="section-title mt-4"><span class="icon blue">🖱</span> 2. 交互与布局标准</div>
+          <div class="section-title mt-4">
+            <span class="section-icon" aria-hidden="true"><IconStroke name="cursor" size="md" /></span>
+            2. 交互与布局标准
+          </div>
           <div class="grid-3">
             <div class="card">
               <h5 class="mb-3 text-bold">交互与操作反馈</h5>
@@ -190,10 +254,12 @@
                 <select v-model="baselineConfig.textOverflow"><option>默认使用省略号</option><option>换行显示</option></select>
               </div>
               <div class="form-row mt-3" @click="baselineConfig.responsiveCheck = !baselineConfig.responsiveCheck">
-                <label>响应式适配<br/>
-                  <input type="text" v-model="baselineConfig.responsiveBreakpoints" style="width:100%; border:none; background:transparent; font-size:12px; color:#9ca3af; padding:0; margin-top:2px;" />
-                </label>
+                <label>响应式适配<br/><small>走查时校验常用布局断点宽度（px）</small></label>
                 <div class="toggle" :class="{on: baselineConfig.responsiveCheck}"></div>
+              </div>
+              <div class="tags mt-2">
+                <span class="tag" v-for="(t, idx) in baselineConfig.responsiveBreakpoints" :key="'resp'+idx">{{ t }} <span class="tag-rm" @click.stop="removeToken(baselineConfig.responsiveBreakpoints, idx)">🗑</span></span>
+                <span class="tag-add" @click.stop="addToken($event, baselineConfig.responsiveBreakpoints, '768px', '添加响应式断点')">+ 添加</span>
               </div>
               <div class="form-row mt-3" @click="baselineConfig.zIndexCheck = !baselineConfig.zIndexCheck">
                 <label>层级与遮挡<br/><small>确保弹窗等处于最高层级不被遮挡</small></label>
@@ -214,33 +280,50 @@
           </div>
 
           <!-- 3. 无障碍与合规性 -->
-          <div class="section-title mt-4"><span class="icon blue">♿</span> 3. 无障碍与合规性</div>
+          <div class="section-title mt-4">
+            <span class="section-icon" aria-hidden="true"><IconStroke name="accessibility" size="md" /></span>
+            3. 无障碍与合规性
+          </div>
           <div class="grid-4">
-             <div class="card flex-center">
+             <div class="card a11y-card">
                 <h5>色彩对比度阈值</h5>
-                <h3 class="text-blue">≤ 4.5:1</h3>
-                <span class="badge">AA级标准</span>
-                <div class="toggle mt-2" :class="{on: baselineConfig.contrastCheck}" @click="baselineConfig.contrastCheck = !baselineConfig.contrastCheck"></div>
+                <div class="contrast-row">
+                  <span class="text-blue contrast-ratio">≤ 4.5:1</span>
+                  <span class="badge">AA级标准</span>
+                </div>
+                <p class="desc a11y-desc">正文与背景对比度须满足 WCAG AA 级要求。</p>
+                <div class="a11y-footer">
+                  <div class="toggle" :class="{on: baselineConfig.contrastCheck}" @click="baselineConfig.contrastCheck = !baselineConfig.contrastCheck"></div>
+                </div>
              </div>
-             <div class="card">
+             <div class="card a11y-card">
                 <h5>图片 Alt 属性</h5>
-                <p class="desc">强制检测 IMG 标签是否包含替代文本(ALT TEXT)</p>
-                <div class="toggle mt-2" :class="{on: baselineConfig.altCheck}" @click="baselineConfig.altCheck = !baselineConfig.altCheck"></div>
+                <p class="desc a11y-desc">强制检测 IMG 标签是否包含替代文本(ALT TEXT)</p>
+                <div class="a11y-footer">
+                  <div class="toggle" :class="{on: baselineConfig.altCheck}" @click="baselineConfig.altCheck = !baselineConfig.altCheck"></div>
+                </div>
              </div>
-             <div class="card">
+             <div class="card a11y-card">
                 <h5>DOM 语义化</h5>
-                <p class="desc">检测 H1-H6 层级顺序是否严密，是否跨级</p>
-                <div class="toggle mt-2" :class="{on: baselineConfig.domSemantics}" @click="baselineConfig.domSemantics = !baselineConfig.domSemantics"></div>
+                <p class="desc a11y-desc">检测 H1-H6 层级顺序是否严密，是否跨级</p>
+                <div class="a11y-footer">
+                  <div class="toggle" :class="{on: baselineConfig.domSemantics}" @click="baselineConfig.domSemantics = !baselineConfig.domSemantics"></div>
+                </div>
              </div>
-             <div class="card">
+             <div class="card a11y-card">
                 <h5>焦点顺序逻辑</h5>
-                <p class="desc">检测 TAB 键切换时焦点流转是否符合从左到右</p>
-                <div class="toggle mt-2" :class="{on: baselineConfig.focusOrder}" @click="baselineConfig.focusOrder = !baselineConfig.focusOrder"></div>
+                <p class="desc a11y-desc">检测 TAB 键切换时焦点流转是否符合从左到右</p>
+                <div class="a11y-footer">
+                  <div class="toggle" :class="{on: baselineConfig.focusOrder}" @click="baselineConfig.focusOrder = !baselineConfig.focusOrder"></div>
+                </div>
              </div>
           </div>
 
           <!-- 4. 性能与内容质量 -->
-          <div class="section-title mt-4"><span class="icon blue">⚡</span> 4. 性能与内容质量</div>
+          <div class="section-title mt-4">
+            <span class="section-icon" aria-hidden="true"><IconStroke name="bolt" size="md" /></span>
+            4. 性能与内容质量
+          </div>
           <div class="grid-2">
              <div class="card">
                <div class="form-group">
@@ -275,7 +358,7 @@
                </div>
                <div class="form-group">
                  <label>自动登录密码</label>
-                 <input type="password" v-model="baselineConfig.loginPwd" placeholder="例如: 123456" style="width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 6px;" />
+                 <input type="password" v-model="baselineConfig.loginPwd" placeholder="例如: 123456" style="width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 8px;" />
                </div>
              </div>
              <div class="grid-2" style="border-top: 1px dashed #e8eaf0; padding-top: 16px;">
@@ -340,7 +423,7 @@
                </div>
                <div class="form-group">
                  <label>自动登录密码</label>
-                 <input type="password" v-model="componentConfig.loginPwd" placeholder="例如: 123456" style="width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 6px;" />
+                 <input type="password" v-model="componentConfig.loginPwd" placeholder="例如: 123456" style="width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 8px;" />
                </div>
              </div>
              <div class="grid-2" style="border-top: 1px dashed #e8eaf0; padding-top: 16px;">
@@ -407,7 +490,10 @@
           </div>
         
           
-          <div class="section-title mt-4"><span class="icon blue">📐</span> 对比区域设置</div>
+          <div class="section-title mt-4">
+            <span class="section-icon" aria-hidden="true"><IconStroke name="ruler" size="md" /></span>
+            对比区域设置
+          </div>
           <div class="card">
              <div class="grid-2">
                <div class="form-group">
@@ -429,7 +515,10 @@
              </div>
           </div>
 
-          <div class="section-title mt-4"><span class="icon blue">🤖</span> AI 智能分析</div>
+          <div class="section-title mt-4">
+            <span class="section-icon" aria-hidden="true"><IconStroke name="chip-ai" size="md" /></span>
+            AI 智能分析
+          </div>
           <div class="card">
              <div class="form-row" @click="designConfig.aiAnalysis = !designConfig.aiAnalysis">
                <label>启用 AI 差异分析<br/><small>自动识别布局偏移、色值差异等</small></label>
@@ -441,7 +530,10 @@
              </div>
           </div>
 
-          <div class="section-title mt-4"><span class="icon blue">🎯</span> 对比精度设置</div>
+          <div class="section-title mt-4">
+            <span class="section-icon" aria-hidden="true"><IconStroke name="crosshair" size="md" /></span>
+            对比精度设置
+          </div>
           <div class="card mb-4">
              <div class="precision-tabs">
                 <div class="precision-opt" :class="{ active: designConfig.precisionMode === 'pixel' }" @click="designConfig.precisionMode = 'pixel'">
@@ -486,7 +578,7 @@
                </div>
                <div class="form-group">
                  <label>自动登录密码</label>
-                 <input type="password" v-model="designConfig.loginPwd" placeholder="例如: 123456" style="width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 6px;" />
+                 <input type="password" v-model="designConfig.loginPwd" placeholder="例如: 123456" style="width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 8px;" />
                </div>
              </div>
              <div class="grid-2" style="border-top: 1px dashed #e8eaf0; padding-top: 16px;">
@@ -502,12 +594,17 @@
           </div>
         </div>
 
-        
-        <div class="footer-actions">
-           <button class="btn-ghost" @click="$router.push('/')">取消</button>
-           <button class="btn-primary" @click="startScan">⚡ 开启走查</button>
         </div>
-        
+
+        <div class="footer-actions footer-actions--fixed" aria-label="走查操作">
+          <div class="footer-actions-inner">
+            <button type="button" class="btn-ghost" @click="$router.push('/')">取消</button>
+            <button type="button" class="btn-primary btn-primary-with-icon" @click="startScan">
+              <IconStroke name="bolt" size="sm" strokeWeight="2" class="btn-primary-icon" />
+              开启走查
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -519,8 +616,13 @@ import { useRouter } from 'vue-router'
 import { useAuditStore } from '../store/audit'
 import { useUserStore } from '../store/user'
 import AppNavbar from '../components/AppNavbar.vue'
-import Swal from 'sweetalert2'
+import IconStroke from '../components/IconStroke.vue'
+import SpecAddFloat from '../components/SpecAddFloat.vue'
+import SpecColorFloat from '../components/SpecColorFloat.vue'
 import axios from 'axios'
+import { openSpecAddPanel, confirmSpecAddPanel, openColorEditPanel } from '../utils/specModal'
+import { showToastInfo } from '../utils/modal'
+import { normalizeResponsiveBreakpoints } from '../utils/baselineConfig'
 
 const router = useRouter()
 const auditStore = useAuditStore()
@@ -551,6 +653,10 @@ const defaultBaseline = {
   radiusTokens: ['4px', '8px', '12px'],
   transitionCheck: true,
   transitions: '0.2s, 0.3s',
+  buttonHeightCheck: true,
+  inputSelectHeightCheck: true,
+  buttonHeightTokens: ['32px', '40px'],
+  inputHeightTokens: ['32px', '40px'],
   shadowCheck: true,
   shadowPreset: '符合 Ant Design 投影规范',
   iconCheck: true,
@@ -562,7 +668,7 @@ const defaultBaseline = {
   gestureCheck: true,
   textOverflow: '默认使用省略号',
   responsiveCheck: true,
-  responsiveBreakpoints: '768, 1024, 1440',
+  responsiveBreakpoints: ['768px', '1024px', '1440px'],
   zIndexCheck: true,
   emptyStateCheck: true,
   loadingStateCheck: true,
@@ -680,12 +786,37 @@ const componentConfig = reactive(JSON.parse(JSON.stringify(defaultComponent)))
 
 const isDirty = ref(false)
 
+const specFloat = reactive({
+  open: false,
+  left: 0,
+  top: 0,
+  title: '',
+  fieldLabel: '规范值',
+  defaultVal: '',
+  mode: 'plain',
+  arr: null,
+})
+
+const colorFloat = reactive({
+  open: false,
+  left: 0,
+  top: 0,
+  title: '修改色值',
+  label: '',
+  hex: '#000000',
+  editIdx: null,
+  isAdd: false,
+})
+
 onMounted(async () => {
   if (userStore.userInfo) {
     try {
       const res = await axios.get(`http://localhost:8000/api/config/${userStore.userInfo.id}`)
       if (res.data.status === 'success' && res.data.data) {
-        if (res.data.data.baseline_config) Object.assign(baselineConfig, res.data.data.baseline_config)
+        if (res.data.data.baseline_config) {
+          Object.assign(baselineConfig, res.data.data.baseline_config)
+          normalizeResponsiveBreakpoints(baselineConfig)
+        }
         if (res.data.data.design_config) Object.assign(designConfig, res.data.data.design_config)
         if (res.data.data.component_config) Object.assign(componentConfig, res.data.data.component_config)
       }
@@ -715,9 +846,34 @@ const startScan = () => {
   router.push('/scan')
 }
 
-const addToken = (arr, val) => {
-  const input = prompt('请输入新规范值', val)
-  if (input) arr.push(input)
+const addToken = (e, arr, val, title) => openSpecAddPanel(specFloat, e, arr, val, title || '添加规范值')
+
+const onSpecFloatConfirm = (val) => confirmSpecAddPanel(specFloat, val)
+
+const onColorFloatConfirm = (payload) => {
+  if (!payload) return
+  if (colorFloat.isAdd) {
+    const hex = String(payload.hex || '').trim().toUpperCase()
+    const dup = baselineConfig.colors.some((c) => String(c.hex || '').trim().toUpperCase() === hex)
+    if (dup) {
+      showToastInfo('已存在相同的色值')
+      colorFloat.editIdx = null
+      colorFloat.isAdd = false
+      return
+    }
+    baselineConfig.colors.push({
+      label: payload.label?.trim() || '新增色值',
+      hex: payload.hex,
+    })
+  } else {
+    const i = colorFloat.editIdx
+    if (i != null && baselineConfig.colors[i]) {
+      baselineConfig.colors[i].label = payload.label
+      baselineConfig.colors[i].hex = payload.hex
+    }
+  }
+  colorFloat.editIdx = null
+  colorFloat.isAdd = false
 }
 
 const removeToken = (arr, idx) => {
@@ -766,72 +922,133 @@ const removeUploadedFile = () => {
   uploadError.value = ''
 }
 
-const editColor = async (idx) => {
+const editColor = (e, idx) => {
   const color = baselineConfig.colors[idx]
-  const { value: formValues } = await Swal.fire({
-    title: '修改色值',
-    html: `
-      <div style="text-align:left; margin-bottom:8px; font-size:14px; color:#4b5563;">颜色名称</div>
-      <input id="swal-input1" class="swal2-input" style="margin:0; width:100%; box-sizing:border-box;" value="${color.label}">
-      <div style="text-align:left; margin-top:20px; margin-bottom:8px; font-size:14px; color:#4b5563;">色值 (HEX)</div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <input type="color" id="swal-input2" style="width:46px; height:46px; border:1px solid #e5e7eb; border-radius:6px; cursor:pointer; padding:0; background:none;" value="${color.hex}">
-        <input id="swal-input3" class="swal2-input" style="margin:0; flex:1; font-family:monospace;" value="${color.hex}">
-      </div>
-    `,
-    focusConfirm: false, showCancelButton: true, confirmButtonText: '确认', confirmButtonColor: '#3b6ef8',
-    didOpen: () => {
-      const cp = document.getElementById('swal-input2'); const text = document.getElementById('swal-input3');
-      cp.addEventListener('input', (e) => text.value = e.target.value)
-      text.addEventListener('input', (e) => { if(/^#[0-9A-Fa-f]{6}$/i.test(e.target.value)) cp.value = e.target.value })
-    },
-    preConfirm: () => ({ label: document.getElementById('swal-input1').value, hex: document.getElementById('swal-input3').value })
-  })
-  if (formValues) {
-    baselineConfig.colors[idx].label = formValues.label
-    baselineConfig.colors[idx].hex = formValues.hex
-  }
+  colorFloat.isAdd = false
+  colorFloat.editIdx = idx
+  openColorEditPanel(colorFloat, e, color.label, color.hex, '修改色值')
 }
 
-const addColor = () => {
-  baselineConfig.colors.push({ hex: '#000000', label: '新增色值' })
+const addColor = (e) => {
+  colorFloat.isAdd = true
+  colorFloat.editIdx = null
+  openColorEditPanel(colorFloat, e, '新增色值', '#000000', '添加色值')
 }
 </script>
 
 <style scoped>
-.page-container { background: #f4f6fb; min-height: 100vh; padding-top: 60px; }
-.config-layout { display: flex; max-width: 1440px; margin: 0 auto; height: calc(100vh - 60px); overflow: hidden; }
+.page-container {
+  min-height: 100vh;
+  padding-top: 60px;
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  position: relative;
+  /* 第四张图风格背景：图片底座 + CSS 渐变叠加实现高清过渡，避免位图缩放模糊 */
+  background-color: #f0f4ff;
+  background-image:
+    radial-gradient(ellipse 70% 50% at 50% 45%, rgba(255, 255, 255, 0.65) 0%, transparent 58%),
+    radial-gradient(ellipse 40% 30% at 90% 10%, rgba(226, 232, 255, 0.5) 0%, transparent 48%),
+    radial-gradient(ellipse 45% 35% at 8% 92%, rgba(232, 238, 252, 0.45) 0%, transparent 50%),
+    url('/images/audit-setup-bg.png');
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+}
+.config-layout { display: flex; max-width: 1440px; margin: 0 auto; min-height: calc(100vh - 60px); }
 .sidebar { width: 260px; background: #fff; padding: 20px; border-right: 1px solid #e2e4ec; overflow-y: auto; flex-shrink: 0; }
 .sidebar-title { font-size: 14px; color: #9ca3af; margin-bottom: 16px; font-weight: bold; }
 .nav-item { padding: 12px 16px; margin-bottom: 4px; border-radius: 8px; cursor: pointer; color: #4b5563; display: flex; align-items: center; font-weight: 500;}
 .nav-item:hover { background: #f9fafb; }
-.nav-item.active { background: #eef2ff; color: #3b6ef8; font-weight: bold; }
-.nav-item .icon { margin-right: 10px; }
+.nav-item.active { background: #eef2ff; color: #1A6AFF; font-weight: bold; }
+.nav-item .icon { margin-right: 10px; display: inline-flex; align-items: center; justify-content: center; color: inherit; }
+.nav-chevron { transition: transform 0.2s ease; color: #9ca3af !important; display: inline-flex !important; }
+.nav-chevron.open { transform: rotate(180deg); }
 .sub-nav { padding-left: 40px; margin-bottom: 10px; }
 .sub-item { padding: 8px 0; color: #6b7280; font-size: 14px; cursor: pointer; }
-.sub-item:hover { color: #3b6ef8; }
+.sub-item:hover { color: #1A6AFF; }
 .arrow { margin-left: auto; font-size: 12px; color: #9ca3af;}
 
-.main-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; background: #f4f6fb; }
+.main-content {
+  flex: 1;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  padding: 16px 20px 0;
+  box-sizing: border-box;
+}
+
+.config-panel-sheet {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 24px;
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.config-panel-sheet .content-header {
+  padding: 22px 28px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(240, 241, 245, 0.8);
+}
 .content-header { padding: 30px 40px 10px; display: flex; justify-content: space-between; align-items: flex-start; }
 .form-container { padding: 0 40px; flex: 1; }
+.config-panel-sheet .form-container { padding: 20px 28px 30px; flex: 0 0 auto; }
 
 .breadcrumb { font-size: 13px; color: #9ca3af; margin-bottom: 8px; }
 .breadcrumb .cur { color: #1a1d2e; font-weight: bold; }
 h2 { margin: 0; font-size: 24px; color: #1a1d2e; }
 .subtitle { margin: 6px 0 0 0; color: #6b7280; font-size: 14px; }
 
-.toggle-group-top { display: flex; align-items: center; background: white; padding: 6px 12px; border-radius: 20px; border: 1px solid #e2e4ec; box-shadow: 0 2px 4px rgba(0,0,0,0.02); cursor: pointer;}
+.toggle-group-top {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 6px 12px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+}
 
 .section-title { font-size: 18px; font-weight: bold; color: #1a1d2e; margin-bottom: 16px; display: flex; align-items: center; }
-.section-title .icon { margin-right: 8px; font-size: 20px; }
+.section-title .section-icon { display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; color: currentColor; }
+.card-hd-with-icon { display: flex; align-items: center; gap: 8px; margin: 0 0 16px 0; font-size: 15px; color: #1a1d2e; }
+.card-hd-icon { display: inline-flex; color: currentColor; flex-shrink: 0; }
+.a11y-card { display: flex; flex-direction: column; min-height: 168px; }
+.a11y-card .a11y-desc { flex: 1; }
+.a11y-footer { margin-top: auto; padding-top: 12px; display: flex; justify-content: flex-end; }
+.contrast-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.contrast-ratio { font-size: 1.35rem; font-weight: 800; line-height: 1.2; margin: 0 !important; }
 .mt-4 { margin-top: 24px; }
 .mt-3 { margin-top: 16px; }
 .mt-2 { margin-top: 8px; }
 .mb-4 { margin-bottom: 24px; }
 .mb-3 { margin-bottom: 16px; }
 
-.card { background: #fff; border: 1px solid #e2e4ec; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+.card {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.05);
+}
+.config-panel-sheet .card {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
@@ -844,14 +1061,16 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .text-bold { font-weight: bold; }
 .desc { font-size: 12px; color: #6b7280; margin: 0; line-height: 1.5; }
 .flex-center { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-.text-blue { color: #3b6ef8; margin: 8px 0; font-size: 28px; font-weight: bold; }
+.text-blue { color: #1A6AFF; margin: 8px 0; font-size: 28px; font-weight: bold; }
 .badge { background: #d1fae5; color: #059669; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
 
+.field-hint { font-size: 12px; color: #6b7280; line-height: 1.55; margin: 0 0 10px 0; }
+.field-hint strong { color: #4b5563; font-weight: 600; }
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; font-size: 13px; color: #4b5563; margin-bottom: 8px; font-weight: 500; }
-.form-group input[type="text"], .form-group input[type="number"], select { width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 6px; outline: none; font-size: 14px; box-sizing: border-box;}
-.form-group input:focus, select:focus { border-color: #3b6ef8; }
-.input-with-unit { display: flex; align-items: center; background: #fff; border: 1px solid #e2e4ec; border-radius: 6px; overflow: hidden; }
+.form-group input[type="text"], .form-group input[type="number"], select { width: 100%; padding: 10px; border: 1px solid #e2e4ec; border-radius: 8px; outline: none; font-size: 14px; box-sizing: border-box;}
+.form-group input:focus, select:focus { border-color: #1A6AFF; }
+.input-with-unit { display: flex; align-items: center; background: #fff; border: 1px solid #e2e4ec; border-radius: 8px; overflow: hidden; }
 .input-with-unit input { border: none; flex: 1; border-radius: 0; }
 .input-with-unit span { padding: 0 12px; background: #f9fafb; color: #6b7280; font-size: 13px; border-left: 1px solid #e2e4ec; height: 100%; display: flex; align-items: center;}
 
@@ -860,52 +1079,76 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .form-row small { display: block; font-size: 12px; color: #9ca3af; font-weight: normal; margin-top: 4px; }
 
 .toggle { width: 40px; height: 24px; background: #d1d5db; border-radius: 12px; position: relative; cursor: pointer; flex-shrink:0;}
-.toggle.on { background: #3b6ef8; }
+.toggle.on { background: #1A6AFF; }
 .toggle::after { content: ''; position: absolute; width: 18px; height: 18px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: 0.2s; }
 .toggle.on::after { left: 19px; }
 
-.color-row { display: flex; align-items: center; margin-bottom: 10px; padding: 8px; background: #f9fafb; border-radius: 6px; }
+.color-row { display: flex; align-items: center; margin-bottom: 10px; padding: 8px; background: rgba(249, 250, 251, 0.8); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.4); }
 .color-box { width: 24px; height: 24px; border-radius: 4px; margin-right: 12px; }
 .color-name { flex: 1; font-size: 13px; color: #1a1d2e; }
 .color-hex { color: #6b7280; font-size: 13px; font-family: monospace; margin-right: 12px; }
 .btn-del { background: none; border: none; color: #9ca3af; cursor: pointer; }
 .btn-del:hover { color: #ef4444; }
-.btn-add { text-align: center; padding: 10px; border: 1px dashed #d1d5db; border-radius: 6px; color: #6b7280; font-size: 13px; cursor: pointer; }
-.btn-add:hover { border-color: #3b6ef8; color: #3b6ef8; }
+.btn-add { text-align: center; padding: 10px; border: 1px dashed rgba(209, 213, 219, 0.9); border-radius: 12px; color: #6b7280; font-size: 13px; cursor: pointer; background: rgba(255, 255, 255, 0.6); }
+.btn-add:hover { border-color: #1A6AFF; color: #1A6AFF; }
 
 .tags { display: flex; gap: 8px; flex-wrap: wrap; }
-.tag { background: #f0f4ff; color: #3b6ef8; padding: 4px 10px; border-radius: 6px; font-size: 12px; border: 1px solid #dbeafe; display:flex; align-items:center;}
+.tag { background: #f0f4ff; color: #1A6AFF; padding: 4px 10px; border-radius: 8px; font-size: 12px; border: 1px solid #dbeafe; display:flex; align-items:center;}
 .tag-rm { cursor: pointer; margin-left: 6px; color: #9ca3af;}
 .tag-rm:hover { color: #ef4444;}
-.tag-add { border: 1px dashed #d1d5db; color: #6b7280; padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; background: white;}
-.tag-add:hover { border-color: #3b6ef8; color: #3b6ef8; }
+.tag-add { border: 1px dashed rgba(209, 213, 219, 0.9); color: #6b7280; padding: 4px 10px; border-radius: 10px; font-size: 12px; cursor: pointer; background: rgba(255, 255, 255, 0.7);}
+.tag-add:hover { border-color: #1A6AFF; color: #1A6AFF; }
 
-.btn-primary { background: #3b6ef8; color: white; border: none; padding: 10px 24px; border-radius: 20px; font-size: 14px; cursor: pointer; font-weight: bold; }
-.btn-ghost { background: white; color: #4b5563; border: 1px solid #d1d5db; padding: 10px 24px; border-radius: 20px; font-size: 14px; cursor: pointer; margin-right: 12px; }
+.btn-primary { background: #1A6AFF; color: white; border: none; padding: 10px 24px; border-radius: 20px; font-size: 14px; cursor: pointer; font-weight: bold; }
+.btn-primary-with-icon { display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary-icon { flex-shrink: 0; }
+.btn-ghost { background: white; color: #4b5563; border: 1px solid #d1d5db; padding: 10px 24px; border-radius: 20px; font-size: 14px; cursor: pointer; }
 
-.footer-actions { position: sticky; bottom: 0; background: white; padding: 20px 40px; border-top: 1px solid #e2e4ec; display: flex; justify-content: flex-end; margin-top: 40px; z-index: 10; box-shadow: 0 -4px 12px rgba(0,0,0,0.02);}
+.footer-actions.footer-actions--fixed {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  margin: 0;
+  z-index: 100;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(250, 251, 252, 0.98);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid #f0f1f5;
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.05);
+}
+.footer-actions-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
 .w-100 { width: 100%; }
 .flex { display: flex; }
 .gap-2 { gap: 10px; }
 
 /* Upload Zone */
 .upload-zone {
-  border: 2px dashed #c8d0e0;
-  border-radius: 10px;
+  border: 2px dashed rgba(200, 208, 224, 0.9);
+  border-radius: 20px;
   padding: 36px 24px;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
-  background: #f8f9fc;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(8px);
 }
 .upload-zone:hover, .upload-zone--dragover {
   border-color: #1A6AFF;
-  background: #eaf2ff;
+  background: rgba(234, 242, 255, 0.8);
 }
 .upload-zone--has-file {
   border-style: solid;
   border-color: #1A6AFF;
-  background: #f0f5ff;
+  background: rgba(240, 245, 255, 0.9);
   padding: 20px 24px;
 }
 .upload-icon { font-size: 28px; margin-bottom: 8px; color: #8a94a8; }
@@ -915,7 +1158,7 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .upload-error { color: #e53e3e; font-size: 13px; margin-top: 8px; }
 .upload-status { color: #1A6AFF; font-size: 13px; margin-top: 8px; }
 .upload-preview { display: flex; align-items: center; gap: 16px; text-align: left; }
-.preview-img { width: 80px; height: 60px; object-fit: cover; border-radius: 6px; border: 1px solid #e8eaf0; flex-shrink: 0; }
+.preview-img { width: 80px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid #e8eaf0; flex-shrink: 0; }
 .preview-icon { font-size: 40px; flex-shrink: 0; }
 .preview-info { flex: 1; min-width: 0; }
 .preview-name { font-size: 14px; font-weight: 600; color: #1F1F21; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -925,20 +1168,31 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 
 /* 精度设置网格 */
 .precision-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
-.precision-opt { border: 2px solid #e2e4ec; border-radius: 12px; padding: 18px; cursor: pointer; display: flex; gap: 14px; transition: all 0.2s;}
-.precision-opt.active { border-color: #3b6ef8; background: #f0f4ff; }
+.precision-opt {
+  border: 2px solid rgba(226, 228, 236, 0.8);
+  border-radius: 18px;
+  padding: 18px;
+  cursor: pointer;
+  display: flex;
+  gap: 14px;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(8px);
+}
+.precision-opt:hover { background: rgba(255, 255, 255, 0.7); }
+.precision-opt.active { border-color: #1A6AFF; background: rgba(240, 244, 255, 0.85); }
 .precision-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #c8cad4; flex-shrink: 0; margin-top: 2px; }
-.precision-opt.active .precision-radio { border-color: #3b6ef8; background: #3b6ef8; box-shadow: inset 0 0 0 3px white; }
+.precision-opt.active .precision-radio { border-color: #1A6AFF; background: #1A6AFF; box-shadow: inset 0 0 0 3px white; }
 .precision-opt-name { font-size: 15px; font-weight: 700; color: #1a1d2e; margin-bottom: 4px;}
 .precision-opt-desc { font-size: 12px; color: #6b7280; }
 
 .ignore-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .check-group-title { font-size: 14px; font-weight: 700; color: #4b5563; margin-bottom: 12px; }
 .checkbox-item { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #1a1d2e; margin-bottom: 10px; cursor: pointer;}
-.checkbox-item input { width: 16px; height: 16px; accent-color: #3b6ef8;}
+.checkbox-item input { width: 16px; height: 16px; accent-color: #1A6AFF;}
 
 .anchor-grid { display: grid; grid-template-columns: repeat(3, 36px); grid-template-rows: repeat(3, 36px); gap: 6px; }
-.anchor-dot { width: 36px; height: 36px; border: 2px solid #d1d5db; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; background:#fafbfd; transition: all 0.2s;}
-.anchor-dot.active { background: #3b6ef8; border-color: #3b6ef8; }
+.anchor-dot { width: 36px; height: 36px; border: 2px solid #d1d5db; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; background:#fafbfd; transition: all 0.2s;}
+.anchor-dot.active { background: #1A6AFF; border-color: #1A6AFF; }
 .anchor-dot.active::after { content: ''; width: 8px; height: 8px; background: white; border-radius: 50%; }
 </style>

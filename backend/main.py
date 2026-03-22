@@ -277,7 +277,7 @@ async def get_history(user_id: int):
         history.append(item)
     return {"status": "success", "data": history}
 
-@app.post("/api/history/delete")
+@app.post("/api/history/delete/batch")
 async def delete_history(req: DeleteHistoryReq):
     if not req.ids:
         raise HTTPException(status_code=400, detail="请至少选择一条历史记录")
@@ -297,4 +297,4 @@ async def delete_history(req: DeleteHistoryReq):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

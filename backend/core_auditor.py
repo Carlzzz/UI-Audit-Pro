@@ -8,6 +8,56 @@ from ai_service import generate_diagnosis
 from cv_engine import compute_visual_diff
 
 
+def _non_empty_list(v) -> bool:
+    return isinstance(v, list) and len(v) > 0
+
+
+def _merge_baseline_token_lists(config: dict, camel: str, snake: str) -> None:
+    """camel 与 snake 同时存在时合并去重；camel 为空列表时采用 snake，避免默认 spacingTokens 盖住已保存的 spacing_tokens。"""
+    if not isinstance(config, dict):
+        return
+    a = config.get(camel)
+    b = config.get(snake)
+    if not _non_empty_list(b):
+        return
+    if not _non_empty_list(a):
+        config[camel] = list(b)
+        return
+    seen = set()
+    out = []
+    for x in a + b:
+        if x is None:
+            continue
+        k = str(x).strip()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        out.append(x)
+    config[camel] = out
+
+
+def _normalize_baseline_config_keys(config: dict) -> None:
+    """前端或存储层可能使用 snake_case；走查脚本与前端字段对齐为 camelCase。"""
+    if not isinstance(config, dict):
+        return
+    for camel, snake in (
+        ("spacingTokens", "spacing_tokens"),
+        ("gridTokens", "grid_tokens"),
+        ("radiusTokens", "radius_tokens"),
+        ("buttonHeightTokens", "button_height_tokens"),
+        ("inputHeightTokens", "input_height_tokens"),
+        ("buttonHeightCheck", "button_height_check"),
+        ("inputSelectHeightCheck", "input_select_height_check"),
+        ("gridCheck", "grid_check"),
+        ("radiusCheck", "radius_check"),
+    ):
+        if snake in config and camel not in config:
+            config[camel] = config[snake]
+    _merge_baseline_token_lists(config, "spacingTokens", "spacing_tokens")
+    _merge_baseline_token_lists(config, "gridTokens", "grid_tokens")
+    _merge_baseline_token_lists(config, "radiusTokens", "radius_tokens")
+
+
 # 注意这里新增了 mode 参数
 async def run_audit_task(url: str, config: dict, mode: str):
     # 🌟 新增：检测是否为本地路径进行静态扫描
@@ -185,14 +235,31 @@ async def run_audit_task(url: str, config: dict, mode: str):
     let issueId = 1;
 
     // --- Helper functions ---
+    const coercePx = (v) => {
+        if (v == null || v === '') return NaN;
+        const s = String(v).trim().replace(/px$/i, '').trim();
+        const n = parseFloat(s);
+        return (Number.isFinite(n) && n > 0) ? n : NaN;
+    };
     const parseTokens = (val) => {
         if (!val) return [];
-        if (Array.isArray(val)) return val.map(v => parseFloat(v)).filter(n => !isNaN(n));
-        if (typeof val === 'string') return val.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+        if (Array.isArray(val)) return [...new Set(val.map(coercePx).filter(n => !Number.isNaN(n)).map(n => Math.round(n)))];
+        if (typeof val === 'string') return [...new Set(val.split(',').map(s => coercePx(s.trim())).filter(n => !Number.isNaN(n)).map(n => Math.round(n)))];
         return [];
     };
     const matchesToken = (value, tokens, tolerance = 0.5) =>
         tokens.some(token => Math.abs(value - token) <= tolerance);
+    const isMultipleOfAnyPx = (val, bases) => {
+        const vf = Number(val);
+        if (Number.isNaN(vf) || vf <= 0) return true;
+        if (!bases || bases.length === 0) return true;
+        const v = Math.round(vf);
+        return bases.some((base) => {
+            const b = Math.round(Number(base));
+            if (Number.isNaN(b) || b <= 0) return false;
+            return (v % b + b) % b === 0;
+        });
+    };
 
     const hexToRgb = (hex) => {
         if (!hex) return { r:0, g:0, b:0 };
@@ -401,15 +468,15 @@ async def run_audit_task(url: str, config: dict, mode: str):
         } catch(e) {}
     });
 
-    // --- Form item spacing check ---
+    // --- Form item spacing check（与基准值模式一致：须为间距基准 px 的整数倍，非「仅等于」某一档） ---
     if (spacingTokens.length) {
         try {
             document.querySelectorAll('.ant-form-item,.el-form-item,.form-group,.form-row').forEach(item => {
                 const mb = parseFloat(window.getComputedStyle(item).marginBottom);
-                if (mb > 5 && !matchesToken(mb, spacingTokens)) {
+                if (mb > 5 && !isMultipleOfAnyPx(mb, spacingTokens)) {
                     const r = item.getBoundingClientRect();
                     issues.push({ id: issueId++, title: '表单项间距异常', level: 'medium', category: '间距规范',
-                        desc: `表单项下边距 ${mb}px`, suggestion: `规范间距: ${spacingTokens.join(', ')}px`,
+                        desc: `表单项下边距 ${mb}px`, suggestion: `下边距须为 ${spacingTokens.join('、')} 中任一 px 值的整数倍`,
                         rect: { top: r.top+window.scrollY, left: r.left+window.scrollX, width: r.width, height: r.height } });
                 }
             });
@@ -448,29 +515,71 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 let issueId = 1;
 
                 // --- 1. 提取基准值配置 ---
+                /** 单个 token 转成正数 px（统一去 px、trim，避免数组元素解析丢基准） */
+                const coercePxToken = (v) => {
+                    if (v == null || v === '') return NaN;
+                    const s = String(v).trim().replace(/px$/i, '').trim();
+                    const n = parseFloat(s);
+                    return (Number.isFinite(n) && n > 0) ? n : NaN;
+                };
                 const parseNumericTokens = (raw, fallback = []) => {
                     if (Array.isArray(raw)) {
-                        const arr = raw.map(v => parseFloat(v)).filter(n => !isNaN(n));
+                        const arr = raw.map((v) => coercePxToken(v)).filter((n) => !Number.isNaN(n));
                         return arr.length ? arr : fallback;
                     }
                     if (typeof raw === 'string') {
-                        const arr = raw.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+                        const arr = raw.split(',').map((s) => coercePxToken(s.trim())).filter((n) => !Number.isNaN(n));
                         return arr.length ? arr : fallback;
                     }
                     return fallback;
                 };
+                /** 间距/栅格/圆角：去重后的正数基准列表 */
+                const parsePxTokenList = (raw) => {
+                    const arr = parseNumericTokens(raw, []);
+                    return [...new Set(arr.map((n) => Math.round(n)))].filter((n) => n > 0);
+                };
                 const matchesAnyToken = (val, tokens, tolerance = 0.1) =>
                     tokens.some(t => Math.abs(val - t) <= tolerance);
 
-                const allowedFonts = parseNumericTokens(config.fontTokens, [12, 14, 16, 32]);
-                const allowedRadius = parseNumericTokens(config.radiusTokens, [4, 8, 12]);
+                /** 实测值（px）是否为任一基准值的整数倍；≤0 视为通过 */
+                const isMultipleOfAnyPx = (val, bases) => {
+                    const vf = Number(val);
+                    if (Number.isNaN(vf) || vf <= 0) return true;
+                    if (!bases || bases.length === 0) return true;
+                    const v = Math.round(vf);
+                    return bases.some((g) => {
+                        const base = Math.round(Number(g));
+                        if (Number.isNaN(base) || base <= 0) return false;
+                        return (v % base + base) % base === 0;
+                    });
+                };
+
+                const allowedFonts = parseNumericTokens(config.fontTokens || config.fontSizes, [12, 14, 16, 32]);
                 const allowedLineHeights = parseNumericTokens(config.lineHeights, [1.2, 1.5, 1.6]);
                 const minClickArea = config.minClickArea || 44;
                 const colorTolerance = config.colorTolerance || 2; // ΔE 容差
-                const allowedSpacing = parseNumericTokens(config.spacingTokens, [4, 8, 16]);
-                // 动态读取前端配置的栅格倍数（支持数组或逗号分隔的字符串）
-                const allowedGrids = parseNumericTokens(config.gridTokens, [8]);
-                const allowedTransitions = ['0.2s', '0.3s'];
+                let allowedSpacing = parsePxTokenList(config.spacingTokens);
+                if (!allowedSpacing.length) allowedSpacing = [4, 8, 16];
+                console.log('[UI-Audit] allowedSpacing resolved to:', JSON.stringify(allowedSpacing), 'from config.spacingTokens:', JSON.stringify(config.spacingTokens));
+
+                let allowedGrids = parsePxTokenList(config.gridTokens);
+                if (!allowedGrids.length) allowedGrids = [8];
+
+                let allowedRadius = parsePxTokenList(config.radiusTokens);
+                if (!allowedRadius.length) allowedRadius = [4, 8, 12];
+                const parseTransitionList = (raw) => {
+                    if (typeof raw === 'string' && raw.trim()) {
+                        const arr = raw.split(',').map(s => s.trim()).filter(Boolean);
+                        if (arr.length) return arr;
+                    }
+                    return ['0.2s', '0.3s'];
+                };
+                const allowedTransitions = parseTransitionList(config.transitions);
+                const legacyBtnInp = config.buttonInputCheck !== false;
+                const buttonHeightCheck = ('buttonHeightCheck' in config) ? (config.buttonHeightCheck !== false) : legacyBtnInp;
+                const inputSelectHeightCheck = ('inputSelectHeightCheck' in config) ? (config.inputSelectHeightCheck !== false) : legacyBtnInp;
+                const btnHeightList = parseNumericTokens(config.buttonHeightTokens, []);
+                const inpHeightList = parseNumericTokens(config.inputHeightTokens, []);
                 const imgSizeLimitKB = config.imgSizeLimitKB || 44;
                 
                 // 预设 Ant Design 阴影规则
@@ -489,6 +598,12 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 });
                 
                 const colorDistance = (rgb1, rgb2) => Math.sqrt(Math.pow(rgb1.r - rgb2.r, 2) + Math.pow(rgb1.g - rgb2.g, 2) + Math.pow(rgb1.b - rgb2.b, 2));
+                const rgbToHex = (r, g, b) => '#' + [r, g, b].map(x => Math.max(0, Math.min(255, x | 0)).toString(16).padStart(2, '0')).join('').toUpperCase();
+                const normalizeHex = (h) => {
+                    const s = (h || '').replace(/^#/, '');
+                    if (s.length === 6) return '#' + s.toUpperCase();
+                    return '';
+                };
                 const getLuminance = (r, g, b) => {
                     const a = [r, g, b].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
                     return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
@@ -507,7 +622,9 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     if (!rect || rect.width <= 0 || rect.height <= 0) return;
                     const cords = { top: rect.top + window.scrollY, left: rect.left + window.scrollX, width: rect.width, height: rect.height };
 
-                    const isInteractive = ['button', 'a', 'input', 'select', 'textarea'].includes(tag) || style.cursor === 'pointer';
+                    const svgInnerTags = ['svg','path','line','circle','rect','g','polyline','polygon','ellipse','use','defs','clippath','mask','symbol','text','tspan'];
+                    const isInteractive = ['button', 'a', 'input', 'select', 'textarea'].includes(tag) ||
+                        (style.cursor === 'pointer' && !svgInnerTags.includes(tag) && !el.closest('[aria-hidden="true"]'));
                     const hasText = el.innerText && el.innerText.trim().length > 0;
 
                     // ==========================================
@@ -521,13 +638,17 @@ async def run_audit_task(url: str, config: dict, mode: str):
                             const bgRgb = { r: parseInt(bgMatch[1]), g: parseInt(bgMatch[2]), b: parseInt(bgMatch[3]) };
                             if (!(bgRgb.r > 245 && bgRgb.g > 245 && bgRgb.b > 245)) {
                                 let nearestDist = 999;
+                                let nearestBc = brandColors[0];
                                 brandColors.forEach(bc => {
                                     const dist = colorDistance(bgRgb, bc);
-                                    if (dist < nearestDist) nearestDist = dist;
+                                    if (dist < nearestDist) { nearestDist = dist; nearestBc = bc; }
                                 });
+                                const measuredHex = rgbToHex(bgRgb.r, bgRgb.g, bgRgb.b);
+                                const targetHex = normalizeHex(nearestBc.hex) || rgbToHex(nearestBc.r, nearestBc.g, nearestBc.b);
+                                const targetLabel = nearestBc.label || '规范色';
                                 // 模拟 Delta E > 容差
-                                if (nearestDist > colorTolerance * 2.5) { 
-                                    issues.push({ id: issueId++, title: "颜色偏离色盘", level: "warning", category: "视觉", desc: `实测颜色: ${style.backgroundColor}`, suggestion: `请校准至标准全局色盘`, rect: cords });
+                                if (nearestDist > colorTolerance * 2.5) {
+                                    issues.push({ id: issueId++, title: "颜色偏离色盘", level: "warning", category: "视觉", desc: `实测颜色: ${measuredHex}`, suggestion: `请校准为规范色：${targetLabel} ${targetHex}`, rect: cords });
                                 }
                             }
                         }
@@ -559,34 +680,29 @@ async def run_audit_task(url: str, config: dict, mode: str):
                         }
                     }
 
-                    // 1.3 栅格与圆角
+                    // 1.3 栅格（仅全局布局尺寸）：只校验布局类容器「宽度」是否对齐栅格基准；margin/padding 属间距规范，见下方「间距不规范」，避免与栅格混用同一套倍数规则
                     const isLayout = el.className && typeof el.className === 'string' && /(row|col|grid|container|wrapper|layout)/i.test(el.className);
-                    if (isLayout) {
+                    if (config.gridCheck !== false && isLayout) {
                         const w = Math.round(rect.width);
-                        const isMultiples = (val) => val === 0 || allowedGrids.some(g => val % g === 0);
-                        
-                        // 校验容器宽度
-                        if (w > 0 && !isMultiples(w)) {
-                            issues.push({ id: issueId++, title: "容器宽度未对齐栅格", level: "low", category: "视觉", desc: `实测宽度 ${w}px`, suggestion: `需为 ${allowedGrids.join(' 或 ')} 的倍数`, rect: cords });
+                        const gridHint = allowedGrids.length ? `${allowedGrids.join('、')} 中任一 px 值的整数倍` : '规范栅格基准';
+                        if (w > 0 && !isMultipleOfAnyPx(w, allowedGrids)) {
+                            issues.push({ id: issueId++, title: "容器宽度未对齐栅格", level: "low", category: "视觉", desc: `实测宽度 ${w}px`, suggestion: `须为 ${gridHint}`, rect: cords });
                         }
-                        
-                        // 校验容器的 margin 和 padding
-                        ['marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight'].forEach(prop => {
-                            const val = parseFloat(style[prop]);
-                            if (!isNaN(val) && val > 0 && !isMultiples(val)) {
-                                issues.push({ id: issueId++, title: `容器 ${prop} 未对齐栅格`, level: "low", category: "视觉", desc: `实测 ${val}px`, suggestion: `需为 ${allowedGrids.join(' 或 ')} 的倍数`, rect: cords });
-                            }
-                        });
                     }
 
-                    const br = parseFloat(style.borderRadius);
-                    if (!isNaN(br) && br > 0 && !matchesAnyToken(br, allowedRadius, 0.5)) {
-                        issues.push({ id: issueId++, title: "圆角不规范", level: "medium", category: "视觉", desc: `实测 ${br}px`, suggestion: `规范圆角: ${allowedRadius.join(', ')}`, rect: cords });
+                    const brStr = style.borderRadius || '';
+                    const brStrTrim = String(brStr).trim();
+                    const brFirst = /%/.test(brStrTrim) ? NaN : parseFloat(brStrTrim.split(/\\s+/)[0]);
+                    if (config.radiusCheck !== false && !isNaN(brFirst) && brFirst > 0 && !isMultipleOfAnyPx(brFirst, allowedRadius)) {
+                        const radiusHint = allowedRadius.length ? `${allowedRadius.join('、')} 中任一 px 值的整数倍` : '规范圆角基准';
+                        issues.push({ id: issueId++, title: "圆角不规范", level: "medium", category: "视觉", desc: `实测 ${brStr}`, suggestion: `圆角须为 ${radiusHint}`, rect: cords });
                     }
+                    // 间距规范：配置项为基准 px，外边距/内边距须为其中任一数的整数倍（满足其一即通过）
+                    const spacingHint = allowedSpacing.length ? `${allowedSpacing.join('、')} 中任一 px 值的整数倍` : '规范间距基准';
                     ['marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight'].forEach(prop => {
                         const val = parseFloat(style[prop]);
-                        if (!isNaN(val) && val > 0 && !matchesAnyToken(val, allowedSpacing)) {
-                            issues.push({ id: issueId++, title: "间距不规范", level: "low", category: "视觉", desc: `实测 ${prop}: ${val}px`, suggestion: `规范间距: ${allowedSpacing.join(', ')}`, rect: cords });
+                        if (!isNaN(val) && val > 0 && !isMultipleOfAnyPx(val, allowedSpacing)) {
+                            issues.push({ id: issueId++, title: "间距不规范", level: "low", category: "视觉", desc: `实测 ${prop}: ${val}px`, suggestion: `外边距/内边距须为 ${spacingHint}`, rect: cords });
                         }
                     });
 
@@ -599,11 +715,31 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     }
 
                     // 1.5 动画与过渡
-                    const transDur = style.transitionDuration;
-                    if (transDur && transDur !== '0s') {
-                        const durs = transDur.split(',').map(s=>s.trim());
-                        if (durs.some(d => !allowedTransitions.includes(d))) {
-                            issues.push({ id: issueId++, title: "动画过渡异常", level: "low", category: "视觉", desc: `实测 ${transDur}`, suggestion: `规范过渡时间: ${allowedTransitions.join(', ')}`, rect: cords });
+                    if (config.transitionCheck !== false) {
+                        const transDur = style.transitionDuration;
+                        if (transDur && transDur !== '0s') {
+                            const durs = transDur.split(',').map(s=>s.trim());
+                            if (durs.some(d => !allowedTransitions.includes(d))) {
+                                issues.push({ id: issueId++, title: "动画过渡异常", level: "low", category: "视觉", desc: `实测 ${transDur}`, suggestion: `规范过渡时间: ${allowedTransitions.join(', ')}`, rect: cords });
+                            }
+                        }
+                    }
+
+                    // 1.6 按钮与输入框（高度须与配置的规范值一致，严格匹配）
+                    if (buttonHeightCheck || inputSelectHeightCheck) {
+                        const cls = el.className && typeof el.className === 'string' ? el.className : '';
+                        const hEl = Math.round(rect.height);
+                        const inpType = (el.type || '').toLowerCase();
+                        const isBtnEl = tag === 'button' || /\\bant-btn\\b|\\bel-button\\b/.test(cls);
+                        const isInpEl = (tag === 'input' && !['radio','checkbox','file','hidden'].includes(inpType))
+                            || tag === 'textarea' || /\\bant-input\\b|\\bel-input__inner\\b|\\bant-select-selector\\b/.test(cls);
+                        const hintBtn = btnHeightList.length ? `须为: ${btnHeightList.join(', ')}px` : '';
+                        const hintInp = inpHeightList.length ? `须为: ${inpHeightList.join(', ')}px` : '';
+                        if (buttonHeightCheck && isBtnEl && btnHeightList.length && hEl > 2 && !matchesAnyToken(hEl, btnHeightList, 0.5)) {
+                            issues.push({ id: issueId++, title: "按钮高度不符合规范", level: "medium", category: "视觉", desc: `实测高度 ${hEl}px`, suggestion: hintBtn || `请配置按钮高度规范值`, rect: cords });
+                        }
+                        if (inputSelectHeightCheck && isInpEl && inpHeightList.length && hEl > 2 && !matchesAnyToken(hEl, inpHeightList, 0.5)) {
+                            issues.push({ id: issueId++, title: "输入框/选择器高度不符合规范", level: "medium", category: "视觉", desc: `实测高度 ${hEl}px`, suggestion: hintInp || `请配置输入框/选择器高度规范值`, rect: cords });
                         }
                     }
 
@@ -725,6 +861,9 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 return issues;
             }
 """
+            _normalize_baseline_config_keys(config)
+            print(f"[UI-Audit] baseline config spacingTokens = {config.get('spacingTokens')}")
+            print(f"[UI-Audit] baseline config gridTokens    = {config.get('gridTokens')}")
             issues = await page.evaluate(js_auditor, config)
             await browser.close()
 
