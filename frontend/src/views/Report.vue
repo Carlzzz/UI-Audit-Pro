@@ -179,7 +179,7 @@
                   :src="screenshotSrc"
                   class="snapshot-img"
                   alt=""
-                  @click="goTo('/dashboard')"
+                  @click="goTo('/dashboard?entry=snapshot')"
                 />
                 <div v-else class="snapshot-placeholder">此条走查记录暂无快照数据</div>
               </div>

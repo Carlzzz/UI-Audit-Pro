@@ -2,7 +2,12 @@
   <div class="dashboard-layout" v-if="reportData">
     <AppNavbar variant="breadcrumb">
       <template #actions>
-        <button class="btn btn-primary" style="margin-right:24px;" @click="goTo('/report')"><IconStroke name="report" size="sm" stroke-weight="2" /> 生成详细报告</button>
+        <button
+          v-if="showGenerateReportBtn"
+          class="btn btn-primary"
+          style="margin-right:24px;"
+          @click="goTo('/report')"
+        ><IconStroke name="report" size="sm" stroke-weight="2" /> 生成详细报告</button>
       </template>
     </AppNavbar>
 
@@ -22,6 +27,13 @@
           @popover-enter="onPopoverEnter"
           @popover-leave="onPopoverLeave"
         />
+      </div>
+    </Teleport>
+
+    <!-- 文本省略号提示：Teleport 到 body，避免被侧栏裁切/遮挡 -->
+    <Teleport to="body">
+      <div v-show="textTip.visible" class="dash-text-tip" :style="textTip.style" aria-hidden="true">
+        {{ textTip.text }}
       </div>
     </Teleport>
 
@@ -76,22 +88,49 @@
 
         <div class="sidebar-body">
           <table class="audit-table">
+            <colgroup>
+              <col class="col-idx" />
+              <col />
+              <col />
+              <col />
+              <col class="col-status" />
+            </colgroup>
             <thead>
-              <tr><th style="width:25%">审计项</th><th style="width:25%">实测值</th><th style="width:35%">标准值/建议</th><th style="white-space:nowrap; text-align:right;">状态</th></tr>
+              <tr>
+                <th class="th-idx">序号</th>
+                <th>审计项</th>
+                <th class="th-actual">实测值</th>
+                <th class="th-standard">标准值/建议</th>
+                <th class="th-status">状态</th>
+              </tr>
             </thead>
             <tbody>
               <template v-if="reportData.issues && reportData.issues.length > 0">
-                <tr v-for="issue in pagedTableIssues" :key="issue.id" class="data-row">
-                  <td class="attr-name" :title="issue.title">{{ (issue.title || '未知').substring(0,8) }}</td>
-                  <td class="actual-val" :class="`val-${getIssueUrgency(issue)}`">{{ extractValue(issue.desc, true) }}</td>
-                  <td class="standard-val">
-                    <div style="font-size:0.8rem; line-height:1.4; font-weight:600;">{{ extractValue(issue.desc, false) }}</div>
-                    <div class="fix-link" :title="issue.suggestion">建议：{{ (issue.suggestion || '请参考规范').substring(0,8) }}...</div>
+                <tr v-for="(issue, rowIdx) in pagedTableIssues" :key="issue.id" class="data-row">
+                  <td class="row-idx">{{ (tableCurrentPage - 1) * tablePageSize + rowIdx + 1 }}</td>
+                  <td class="attr-name">{{ issue.title || '未知' }}</td>
+                  <td class="actual-val" :class="`val-${getIssueUrgency(issue)}`">
+                    <div class="tip-anchor" :data-tip="extractValue(issue.desc, true)">
+                      <div class="cell-main tip-text">{{ extractValue(issue.desc, true) }}</div>
+                    </div>
                   </td>
-                  <td style="text-align:right;"><span class="status-tag" :class="`st-${getIssueUrgency(issue)}`">{{ getIssueUrgencyLabel(issue) }}</span></td>
+                  <td class="standard-val">
+                    <div
+                      class="tip-anchor"
+                      @mouseenter="onTextTipEnter($event, issue.suggestion || '请参考规范')"
+                      @mousemove="onTextTipMove"
+                      @mouseleave="onTextTipLeave"
+                      @focusin="onTextTipEnter($event, issue.suggestion || '请参考规范')"
+                      @focusout="onTextTipLeave"
+                      tabindex="0"
+                    >
+                      <div class="fix-link tip-text">{{ issue.suggestion || '请参考规范' }}</div>
+                    </div>
+                  </td>
+                  <td class="status-cell"><span class="status-tag" :class="`st-${getIssueUrgency(issue)}`">{{ getIssueUrgencyLabel(issue) }}</span></td>
                 </tr>
               </template>
-              <tr v-else><td colspan="4" style="text-align:center; padding: 30px; color:#9ca3af;">无样式异常数据</td></tr>
+              <tr v-else><td colspan="5" style="text-align:center; padding: 30px; color:#9ca3af;">无样式异常数据</td></tr>
             </tbody>
           </table>
 
@@ -149,7 +188,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppNavbar from '../components/AppNavbar.vue'
 import IconStroke from '../components/IconStroke.vue'
 import DashboardIssuePopover from '../components/DashboardIssuePopover.vue'
@@ -159,8 +198,47 @@ import { getIssueUrgency, getCategoryType } from '../utils/issueUrgency'
 import { splitDiagnosisLines, diagnosisMarkdownBoldToHtml } from '../utils/diagnosisFormat'
 
 const router = useRouter()
+const route = useRoute()
 const auditStore = useAuditStore()
 const reportData = auditStore.reportData
+const showGenerateReportBtn = computed(() => route.query.entry !== 'snapshot')
+
+const textTip = ref({
+  visible: false,
+  text: '',
+  style: {}
+})
+
+const clamp = (val, min, max) => Math.max(min, Math.min(max, val))
+
+const updateTextTipPos = (evt) => {
+  if (!textTip.value.visible) return
+  const el = evt?.currentTarget
+  if (!el || !el.getBoundingClientRect) return
+  const rect = el.getBoundingClientRect()
+  const gap = 10
+  const top = rect.top + rect.height / 2
+  const left = rect.right + gap
+  const maxLeft = window.innerWidth - 24
+  const maxTop = window.innerHeight - 24
+
+  textTip.value.style = {
+    top: `${clamp(top, 24, maxTop)}px`,
+    left: `${clamp(left, 24, maxLeft)}px`,
+    transform: 'translateY(-50%)'
+  }
+}
+
+const onTextTipEnter = (evt, text) => {
+  textTip.value.text = text || ''
+  textTip.value.visible = true
+  updateTextTipPos(evt)
+}
+
+const onTextTipMove = (evt) => updateTextTipPos(evt)
+const onTextTipLeave = () => {
+  textTip.value.visible = false
+}
 
 const diagnosisBulletHtmlList = computed(() => {
   const raw = reportData?.diagnosis
@@ -606,19 +684,93 @@ const goTo = (path) => router.push(path)
 .sidebar-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
 
 .audit-table { width: 100%; border-collapse: collapse; table-layout: fixed;}
-.audit-table th { padding: 14px 24px; font-size: 0.85rem; font-weight: 500; color: #9ca3af; text-align: left; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
+.audit-table col.col-idx { width: 44px; }
+.audit-table col.col-status { width: 72px; }
+.th-idx { width: 44px; }
+.th-status { width: 72px; text-align: left; }
+.audit-table th,
+.audit-table td { overflow: visible; }
+.row-idx {
+  color: #9ca3af;
+  font-size: 12px;
+  text-align: left;
+}
+.audit-table th {
+  padding: 14px 24px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #9ca3af;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
 .group-title { padding: 20px 24px 10px; font-size: 0.95rem; font-weight: 600; color: #1a1d2e; }
 .data-row { border-bottom: 1px solid #f3f4f6; }
-.data-row td { padding: 16px 24px; font-size: 0.9rem; vertical-align: top;}
+.data-row td { padding: 16px 18px; font-size: 12px; vertical-align: top;}
+.audit-table td.actual-val { padding-left: 38px; }
+.audit-table td.standard-val { padding-left: 8px; }
+.audit-table th { padding-left: 18px; padding-right: 18px; }
+.audit-table th.th-actual { padding-left: 38px; }
+.audit-table th.th-standard { padding-left: 8px; }
+.row-idx { padding-left: 18px; padding-right: 18px; }
+.status-cell { text-align: left; }
+.th-idx { white-space: nowrap; }
 .attr-name { color: #4b5563; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-.val-high { color: #ef4444; font-weight: 600; } .val-medium { color: #f59e0b; font-weight: 600; } .val-low { color: #3b82f6; font-weight: 600; }
-.standard-val { color: #1a1d2e; font-weight: 500;}
-.fix-link { color: #1A6AFF; font-size: 0.8rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.val-high { color: #ef4444; font-weight: 500; } .val-medium { color: #f59e0b; font-weight: 500; } .val-low { color: #3b82f6; font-weight: 500; }
+.standard-val { color: #1a1d2e; font-weight: 500; position: relative; }
+.cell-main {
+  font-size: 12px;
+  font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.fix-link {
+  color: #1A6AFF;
+  font-size: 12px;
+  margin-top: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  cursor: pointer;
+}
+.tip-anchor {
+  position: relative;
+  display: block;
+  overflow: visible;
+  outline: none;
+  cursor: pointer;
+}
+.tip-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
-.status-tag { padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 500; display: inline-block;}
-.st-high { color: #ef4444; background: #fee2e2; border: 1px solid #fca5a5;}
-.st-medium { color: #b45309; background: #fef3c7; border: 1px solid #fcd34d;}
-.st-low { color: #2563eb; background: #dbeafe; border: 1px solid #93c5fd;}
+.dash-text-tip {
+  position: fixed;
+  z-index: 2147483647;
+  max-width: min(520px, 56vw);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #1a1d2e;
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.25);
+  line-height: 1.5;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.status-tag { padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; display: inline-block;}
+.st-high { color: #ef4444; background: #fee2e2; }
+.st-medium { color: #b45309; background: #fef3c7; }
+.st-low { color: #2563eb; background: #dbeafe; }
 
 .sidebar-footer { padding: 24px; margin-top: auto; border-top: 1px solid #e5e7eb;}
 .fix-suggestion-box { background: #f0f4ff; border-radius: 8px; padding: 20px; }
