@@ -194,7 +194,7 @@
     margin-bottom: 0;
   }
   .scan-task-id {
-    align-self: flex-start;
+    align-self: center;
     margin: 0 0 10px 0;
     font-size: 0.72rem;
     color: var(--text-muted);
