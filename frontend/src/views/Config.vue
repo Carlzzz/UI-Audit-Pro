@@ -73,8 +73,22 @@
               <div class="card mb-4">
                 <h4>全局色盘</h4>
                 <div class="color-list">
-                  <div class="color-row" v-for="(color, idx) in baselineConfig.colors" :key="idx" @click.stop="editColor($event, idx)" style="cursor:pointer;">
-                    <div class="color-box" :style="{background: color.hex}"></div>
+                  <div
+                    class="color-row"
+                    v-for="(color, idx) in baselineConfig.colors"
+                    :key="String(color.hex || '') + '-' + String(color.label || '') + '-' + idx"
+                    draggable="true"
+                    @click.stop="editColor($event, idx)"
+                    @dragstart="onBaselineColorDragStart($event, idx)"
+                    @dragover.prevent="onBaselineColorDragOver($event)"
+                    @drop="onBaselineColorDrop($event, idx)"
+                    @dragend="onBaselineColorDragEnd"
+                  >
+                    <div
+                      class="color-box"
+                      :class="{ 'color-box--soft': isSoftHexBackground(color.hex) }"
+                      :style="{ background: color.hex }"
+                    ></div>
                     <div class="color-name">{{color.label}}</div>
                     <div class="color-hex">{{color.hex}}</div>
                     <button class="btn-del" @click.stop="baselineConfig.colors.splice(idx, 1)">🗑</button>
@@ -82,7 +96,7 @@
                   <div class="btn-add" @click.stop="addColor($event)">+ 添加色值</div>
                   <div class="form-row mt-3">
                     <label>偏差阈值：</label>
-                    <input type="text" v-model="baselineConfig.colorThreshold" class="input-sm" style="width:80px; padding:4px; border:1px solid #e2e4ec; border-radius:4px;" />
+                    <input type="text" v-model="baselineConfig.colorThreshold" class="input-sm" style="width:104px; padding:4px; border:1px solid #e2e4ec; border-radius:4px;" />
                   </div>
                 </div>
               </div>
@@ -94,7 +108,7 @@
                   <label>栅格对齐检测（px 倍数）</label>
                   <div class="toggle" :class="{on: baselineConfig.gridCheck}"></div>
                 </div>
-                <p class="field-hint">填写栅格基准 px（如 8、4）。走查时宽度及容器 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
+                <p class="field-hint">填写栅格基准 px（如 4、5）。走查时宽度及容器 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
                 <div class="tags mt-2">
                   <span class="tag" v-for="(t, idx) in baselineConfig.gridTokens" :key="'g'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.gridTokens, idx)">🗑</span></span>
                   <span class="tag-add" @click="addToken($event, baselineConfig.gridTokens, '8px', '添加栅格基准值')">+ 添加</span>
@@ -107,18 +121,6 @@
                 <div class="tags mt-2">
                   <span class="tag" v-for="(t, idx) in baselineConfig.radiusTokens" :key="'r'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.radiusTokens, idx)">🗑</span></span>
                   <span class="tag-add" @click="addToken($event, baselineConfig.radiusTokens, '16px', '添加圆角值')">+ 添加</span>
-                </div>
-              </div>
-
-              <!-- 动画与过渡 -->
-              <div class="card mb-4">
-                <h4>动画与过渡</h4>
-                <div class="form-row mt-2" @click="baselineConfig.transitionCheck = !baselineConfig.transitionCheck">
-                  <label>过渡持续时间</label>
-                  <div class="toggle" :class="{on: baselineConfig.transitionCheck}"></div>
-                </div>
-                <div class="form-group mt-2">
-                   <input type="text" v-model="baselineConfig.transitions" @blur="normBaselineListFields" />
                 </div>
               </div>
 
@@ -165,7 +167,7 @@
                 <h4>字体与排版</h4>
                 <div class="form-group">
                   <label>字体族</label>
-                  <input type="text" v-model="baselineConfig.fontFamily" @blur="normBaselineListFields" />
+                  <input type="text" v-model="baselineConfig.fontFamily" :title="baselineConfig.fontFamily || ''" class="input-ellipsis" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>字体大小</label>
@@ -181,7 +183,7 @@
                 </div>
                 <div class="form-group">
                   <label>间距规范（px 倍数）</label>
-                  <p class="field-hint">填写间距基准 px（如 4、8）。走查时 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
+                  <p class="field-hint">填写间距基准 px（如 4、5）。走查时 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
                   <div class="tags">
                     <span class="tag" v-for="(t, idx) in baselineConfig.spacingTokens" :key="'s'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.spacingTokens, idx)">✕</span></span>
                     <span class="tag-add" @click="addToken($event, baselineConfig.spacingTokens, '8px', '添加间距基准值')">+ 添加</span>
@@ -197,7 +199,7 @@
                   <div class="toggle" :class="{on: baselineConfig.shadowCheck}"></div>
                 </div>
                 <div class="form-group mt-2">
-                   <select v-model="baselineConfig.shadowPreset">
+                   <select v-model="baselineConfig.shadowPreset" class="select-chevron-inset">
                      <option>符合 Ant Design 投影规范</option>
                      <option>符合 Material Design 投影规范</option>
                    </select>
@@ -223,6 +225,18 @@
                     <span class="tag" v-for="(t, idx) in baselineConfig.iconStrokeTokens" :key="'is'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.iconStrokeTokens, idx)">🗑</span></span>
                     <span class="tag-add" @click="addToken($event, baselineConfig.iconStrokeTokens, '2.5px', '添加描边粗细')">+ 添加</span>
                   </div>
+                </div>
+              </div>
+
+              <!-- 动画与过渡（放在阴影与图标下方） -->
+              <div class="card mb-4">
+                <h4>动画与过渡</h4>
+                <div class="form-row mt-2" @click="baselineConfig.transitionCheck = !baselineConfig.transitionCheck">
+                  <label>过渡持续时间</label>
+                  <div class="toggle" :class="{on: baselineConfig.transitionCheck}"></div>
+                </div>
+                <div class="form-group mt-2">
+                   <input type="text" v-model="baselineConfig.transitions" @blur="normBaselineListFields" />
                 </div>
               </div>
             </div>
@@ -398,7 +412,7 @@
               <h5 class="mb-3 text-bold">排版规范</h5>
               <div class="form-group">
                 <label>字体族</label>
-                <input type="text" v-model="componentConfig.typography.family" />
+                <input type="text" v-model="componentConfig.typography.family" :title="componentConfig.typography.family || ''" class="input-ellipsis" />
               </div>
               <div class="form-group">
                 <label>字体大小</label>
@@ -446,7 +460,7 @@
               <h5 class="mb-3 text-bold">字体与排版</h5>
               <div class="form-group">
                 <label>字体族</label>
-                <input type="text" v-model="componentConfig.typography.family" />
+                <input type="text" v-model="componentConfig.typography.family" :title="componentConfig.typography.family || ''" class="input-ellipsis" />
               </div>
               <div class="form-row mt-2">
                 <label>图标规范</label>
@@ -474,7 +488,7 @@
               <div class="form-row mt-3">
                 <label>投影预设</label>
               </div>
-              <select v-model="componentConfig.shadowPreset" class="mt-2" style="width:100%;padding:10px;border:1px solid #e2e4ec;border-radius:6px;">
+              <select v-model="componentConfig.shadowPreset" class="mt-2 select-chevron-inset comp-shadow-select">
                 <option>符合 Ant Design 投影规范</option>
                 <option>符合 Material Design 投影规范</option>
               </select>
@@ -977,7 +991,7 @@
 
         <div v-if="activeTab === 'design'" class="form-container">
           <div class="section-title mt-4">
-            <span class="section-icon" aria-hidden="true"><IconStroke name="ruler" size="md" /></span>
+            <span class="section-icon" aria-hidden="true"><IconStroke name="ruler" size="md" stroke-weight="2" /></span>
             对比区域设置
           </div>
           <div class="card">
@@ -988,7 +1002,7 @@
                </div>
                <div class="form-group">
                  <label>设备类型</label>
-                 <select v-model="designConfig.deviceType">
+                 <select v-model="designConfig.deviceType" class="select-chevron-inset">
                     <option value="桌面端">桌面端 (Desktop)</option>
                     <option value="移动端">移动端 (Mobile)</option>
                  </select>
@@ -1002,7 +1016,7 @@
           </div>
 
           <div class="section-title mt-4">
-            <span class="section-icon" aria-hidden="true"><IconStroke name="chip-ai" size="md" /></span>
+            <span class="section-icon" aria-hidden="true"><IconStroke name="chip-ai" size="md" stroke-weight="2" /></span>
             AI 智能分析
           </div>
           <div class="card">
@@ -1017,7 +1031,7 @@
           </div>
 
           <div class="section-title mt-4">
-            <span class="section-icon" aria-hidden="true"><IconStroke name="crosshair" size="md" /></span>
+            <span class="section-icon" aria-hidden="true"><IconStroke name="crosshair" size="md" stroke-weight="2" /></span>
             对比精度设置
           </div>
           <div class="card mb-4">
@@ -1077,7 +1091,12 @@ import axios from 'axios'
 import { useUserStore } from '../store/user'
 import { openSpecAddPanel, confirmSpecAddPanel, openColorEditPanel } from '../utils/specModal'
 import { normalizeResponsiveBreakpoints } from '../utils/baselineConfig'
-import { normalizeAsciiPunctuation } from '../utils/punctuationNormalize'
+import { normalizeAsciiPunctuation, formatCommaListSpacing } from '../utils/punctuationNormalize'
+import {
+  sortCommaSeparatedNumericList,
+  sortPixelLikeTokenArray,
+  normalizeTransitionDurationsList,
+} from '../utils/specValueSort'
 
 const userStore = useUserStore()
 const activeTab = ref('baseline')
@@ -1250,13 +1269,51 @@ const baselineConfig = reactive(JSON.parse(JSON.stringify(defaultBaseline)))
 const designConfig = reactive(JSON.parse(JSON.stringify(defaultDesign)))
 const componentConfig = reactive(JSON.parse(JSON.stringify(defaultComponent)))
 
-/** 列表类文本：中文输入法全角标点转半角，与走查解析一致 */
+/** 列表类文本：全角标点转半角 + 数值类按从小到大排序 + 逗号后补空格 */
 const normBaselineListFields = () => {
-  ;['transitions', 'fontFamily', 'fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
+  if (baselineConfig.fontFamily != null && baselineConfig.fontFamily !== '') {
+    baselineConfig.fontFamily = formatCommaListSpacing(baselineConfig.fontFamily)
+  }
+  ;['fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
     if (baselineConfig[k] != null && baselineConfig[k] !== '') {
-      baselineConfig[k] = normalizeAsciiPunctuation(baselineConfig[k])
+      baselineConfig[k] = formatCommaListSpacing(
+        sortCommaSeparatedNumericList(normalizeAsciiPunctuation(baselineConfig[k]))
+      )
     }
   })
+  if (baselineConfig.transitions != null && baselineConfig.transitions !== '') {
+    baselineConfig.transitions = formatCommaListSpacing(
+      normalizeTransitionDurationsList(normalizeAsciiPunctuation(baselineConfig.transitions))
+    )
+  }
+  sortPixelLikeTokenArray(baselineConfig.spacingTokens)
+  sortPixelLikeTokenArray(baselineConfig.gridTokens)
+  sortPixelLikeTokenArray(baselineConfig.radiusTokens)
+  sortPixelLikeTokenArray(baselineConfig.buttonHeightTokens)
+  sortPixelLikeTokenArray(baselineConfig.inputHeightTokens)
+  sortPixelLikeTokenArray(baselineConfig.iconTokens)
+  sortPixelLikeTokenArray(baselineConfig.iconStrokeTokens)
+  sortPixelLikeTokenArray(baselineConfig.responsiveBreakpoints)
+}
+
+const normComponentConfigForSave = () => {
+  const t = componentConfig.typography
+  if (t && typeof t === 'object') {
+    if (t.family != null && t.family !== '') t.family = formatCommaListSpacing(t.family)
+    ;['sizes', 'lineHeights', 'weights'].forEach((k) => {
+      if (t[k] != null && t[k] !== '') {
+        t[k] = formatCommaListSpacing(
+          sortCommaSeparatedNumericList(normalizeAsciiPunctuation(t[k]))
+        )
+      }
+    })
+    if (Array.isArray(t.spacingTokens)) sortPixelLikeTokenArray(t.spacingTokens)
+  }
+  sortPixelLikeTokenArray(componentConfig.spacing)
+  sortPixelLikeTokenArray(componentConfig.grid)
+  sortPixelLikeTokenArray(componentConfig.icons.sizes)
+  sortPixelLikeTokenArray(componentConfig.icons.strokes)
+  sortPixelLikeTokenArray(componentConfig.icons.radius)
 }
 
 const isDirty = ref(false)
@@ -1327,13 +1384,13 @@ const onColorFloatConfirm = (payload) => {
     }
     baselineConfig.colors.push({
       label: payload.label?.trim() || '新增色值',
-      hex: payload.hex,
+      hex: String(payload.hex || '').trim().toUpperCase(),
     })
   } else {
     const i = colorFloat.editIdx
     if (i != null && baselineConfig.colors[i]) {
       baselineConfig.colors[i].label = payload.label
-      baselineConfig.colors[i].hex = payload.hex
+      baselineConfig.colors[i].hex = String(payload.hex || '').trim().toUpperCase()
     }
   }
   colorFloat.editIdx = null
@@ -1344,6 +1401,48 @@ const removeToken = (arr, idx) => {
   arr.splice(idx, 1)
 }
 
+/** 浅色/近白或极浅主色底：加描边便于辨认（含 #F5FBFF 等浅蓝背景） */
+function isSoftHexBackground(hex) {
+  const s = String(hex || '').trim()
+  const m = s.match(/^#?([0-9a-fA-F]{6})$/i)
+  if (!m) return false
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const avg = (r + g + b) / 3
+  const spread = Math.max(r, g, b) - Math.min(r, g, b)
+  return (r >= 235 && g >= 235 && b >= 235) || (avg >= 245 && spread <= 40) || (avg >= 235 && spread <= 35)
+}
+
+const dragColorFromIdx = ref(null)
+
+function onBaselineColorDragStart(e, idx) {
+  dragColorFromIdx.value = idx
+  try {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(idx))
+  } catch (err) {}
+}
+
+function onBaselineColorDragOver(e) {
+  e.preventDefault()
+}
+
+function onBaselineColorDrop(e, toIdx) {
+  e.preventDefault()
+  const fromIdx = dragColorFromIdx.value
+  dragColorFromIdx.value = null
+  if (fromIdx == null || fromIdx === toIdx) return
+  const arr = baselineConfig.colors
+  if (fromIdx < 0 || fromIdx >= arr.length || toIdx < 0 || toIdx >= arr.length) return
+  const [item] = arr.splice(fromIdx, 1)
+  arr.splice(toIdx, 0, item)
+}
+
+function onBaselineColorDragEnd() {
+  dragColorFromIdx.value = null
+}
 
 const cancelEdit = async () => {
   if (userStore.userInfo) {
@@ -1373,6 +1472,7 @@ const cancelEdit = async () => {
 const saveEdit = async () => {
   if (!userStore.userInfo) return Swal.fire('错误', '请先登录', 'error')
   normBaselineListFields()
+  normComponentConfigForSave()
   try {
     const res = await axios.post('http://localhost:8000/api/config', {
       user_id: userStore.userInfo.id,
@@ -1411,6 +1511,8 @@ const addColor = (e) => {
 .sidebar { width: 260px; background: #fff; padding: 20px; border-right: 1px solid #e2e4ec; overflow-y: auto; flex-shrink: 0; }
 .sidebar-title { font-size: 14px; color: #9ca3af; margin-bottom: 16px; font-weight: bold; }
 .nav-item { padding: 12px 16px; margin-bottom: 4px; border-radius: 8px; cursor: pointer; color: #4b5563; display: flex; align-items: center; font-weight: 500;}
+/* 折叠行：箭头距侧栏内容区右缘 10px（收紧右侧 padding） */
+.nav-item.group-title { padding-right: 10px; }
 .nav-item:hover { background: #f9fafb; }
 .nav-item.active { background: #eef2ff; color: #1A6AFF; font-weight: bold; }
 .nav-item .icon { margin-right: 10px; display: inline-flex; align-items: center; justify-content: center; color: inherit; }
@@ -1489,7 +1591,21 @@ h2 { margin: 0; font-size: 24px; color: #1a1d2e; }
 }
 
 .section-title { font-size: 18px; font-weight: bold; color: #1a1d2e; margin-bottom: 16px; display: flex; align-items: center; }
-.section-title .section-icon { display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; color: currentColor; }
+.section-title .section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-right: 10px;
+  color: currentColor;
+}
+.section-title .section-icon :deep(svg) {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
 .card-hd-with-icon { display: flex; align-items: center; gap: 8px; margin: 0 0 16px 0; font-size: 15px; color: #1a1d2e; }
 .card-hd-icon { display: inline-flex; color: currentColor; flex-shrink: 0; }
 .a11y-card { display: flex; flex-direction: column; min-height: 168px; }
@@ -1529,21 +1645,97 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; font-size: 13px; color: #4b5563; margin-bottom: 8px; font-weight: 500; }
 .form-group input[type="text"], .form-group input[type="number"], select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid #e2e4ec; border-radius: 6px; outline: none; font-size: 14px; box-sizing: border-box;}
+.form-group input.input-ellipsis[type="text"] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.form-group input::placeholder,
+.input-with-unit input::placeholder {
+  font-size: 12px;
+}
 .form-group input:focus, select:focus { border-color: #1A6AFF; }
+/* 下拉箭头距右侧 10px（自定义箭头替代系统默认位置） */
+select.select-chevron-inset {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8.5 1.5 4h9z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--input-chevron-inset, 10px) center;
+  padding-right: 32px;
+}
+select.select-chevron-inset:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231A6AFF' d='M6 8.5 1.5 4h9z'/%3E%3C/svg%3E");
+}
+select.comp-shadow-select {
+  width: 100%;
+  height: 40px;
+  padding: 10px 32px 10px 10px;
+  border: 1px solid #e2e4ec;
+  border-radius: 6px;
+  box-sizing: border-box;
+  font-size: 14px;
+}
 .form-group :deep(.filter-select-root) { width: 100%; }
 .form-group :deep(.filter-select-trigger) {
   width: 100%;
-  padding: 10px 36px 10px 10px;
+  padding: 10px calc(var(--input-chevron-inset, 10px) + 16px + 10px) 10px 10px;
   border-radius: 6px;
   border-color: #e2e4ec;
+  background-position: right var(--input-chevron-inset, 10px) center;
 }
 .form-group :deep(.filter-select-trigger:focus) {
   border-color: #1a6aff;
   box-shadow: 0 0 0 3px rgba(26, 106, 255, 0.12);
 }
-.input-with-unit { display: flex; align-items: center; background: #fff; border: 1px solid #e2e4ec; border-radius: 6px; overflow: hidden; }
-.input-with-unit input { border: none; flex: 1; border-radius: 0; }
-.input-with-unit span { padding: 0 12px; background: #f9fafb; color: #6b7280; font-size: 13px; border-left: 1px solid #e2e4ec; height: 100%; display: flex; align-items: center;}
+.input-with-unit {
+  display: flex;
+  align-items: stretch;
+  background: #fff;
+  border: 1px solid #e2e4ec;
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+.input-with-unit:focus-within {
+  border-color: #1a6aff;
+}
+.input-with-unit input[type="number"],
+.input-with-unit input[type="text"],
+.input-with-unit input {
+  flex: 1;
+  width: auto !important;
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none;
+  background: #fff;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.input-with-unit input:focus {
+  outline: none;
+  box-shadow: none;
+}
+/* 单位前竖线分隔，无圆角、无独立底纹，仅一条外轮廓 */
+.input-with-unit span {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  margin: 0;
+  background: #fff;
+  color: #6b7280;
+  font-size: 13px;
+  border-left: 1px solid #e2e4ec;
+  border-radius: 0;
+}
 
 .form-row { display: flex; justify-content: space-between; align-items: center; }
 .form-row label { font-size: 13px; color: #1a1d2e; font-weight: 500; }
@@ -1554,10 +1746,12 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .toggle::after { content: ''; position: absolute; width: 18px; height: 18px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: 0.2s; }
 .toggle.on::after { left: 19px; }
 
-.color-row { display: flex; align-items: center; margin-bottom: 10px; padding: 8px; background: #f9fafb; border-radius: 6px; }
+.color-list .color-row { display: flex; align-items: center; margin-bottom: 10px; padding: 8px; background: #f9fafb; border-radius: 6px; cursor: grab; }
+.color-list .color-row:active { cursor: grabbing; }
 .color-box { width: 24px; height: 24px; border-radius: 4px; margin-right: 12px; }
+.color-box--soft { box-sizing: border-box; border: 1px solid rgba(15, 23, 42, 0.12); }
 .color-name { flex: 1; font-size: 13px; color: #1a1d2e; }
-.color-hex { color: #6b7280; font-size: 13px; font-family: monospace; margin-right: 12px; }
+.color-hex { color: #6b7280; font-size: 13px; font-family: monospace; margin-right: 12px; text-transform: uppercase; }
 .btn-del { background: none; border: none; color: #9ca3af; cursor: pointer; }
 .btn-del:hover { color: #ef4444; }
 .btn-add { text-align: center; height: 36px; display: flex; align-items: center; justify-content: center; padding: 0 12px; border: 1px dashed #d1d5db; border-radius: 6px; color: #6b7280; font-size: 13px; cursor: pointer; box-sizing: border-box; }
@@ -1683,7 +1877,7 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .state-color-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .scg-item { display: flex; flex-direction: column; gap: 4px; }
 .scg-label { font-size: 11px; color: #6b7280; }
-.demo-input { padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+.demo-input { padding: 6px 10px; border-radius: 4px; font-size: 14px; font-weight: 400; }
 .demo-input.normal { border: 1px solid #C0C0E3; }
 .demo-input.focus { border: 1px solid #1A6AFF; }
 .demo-input.error { border: 1px solid #F97F7F; }

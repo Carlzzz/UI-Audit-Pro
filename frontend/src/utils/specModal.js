@@ -1,5 +1,6 @@
 import { showToastInfo } from './modal'
 import { normalizeAsciiPunctuation } from './punctuationNormalize'
+import { sortPixelLikeTokenArray } from './specValueSort'
 
 /**
  * 规范标签去重：8px / 8 / 8.0px 视为相同；14*14px 与 14 * 14px 视为相同
@@ -85,5 +86,6 @@ export function confirmSpecAddPanel(specFloat, val) {
     return
   }
   specFloat.arr.push(val)
+  sortPixelLikeTokenArray(specFloat.arr)
   specFloat.open = false
 }

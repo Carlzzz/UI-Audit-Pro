@@ -25,11 +25,11 @@
         <div class="dip-body">
           <p v-if="issue.desc" class="dip-row">
             <span class="dip-lbl">实测</span>
-            <span class="dip-val">{{ issue.desc }}</span>
+            <span class="dip-val">{{ localizeIssue(issue.desc) }}</span>
           </p>
           <p v-if="issue.suggestion" class="dip-row">
             <span class="dip-lbl">建议</span>
-            <span class="dip-val">{{ issue.suggestion }}</span>
+            <span class="dip-val">{{ localizeIssue(issue.suggestion) }}</span>
           </p>
         </div>
       </div>
@@ -40,6 +40,11 @@
 <script setup>
 import { computed } from 'vue'
 import { getIssueUrgency } from '../utils/issueUrgency'
+import { localizeCursorTermsInText } from '../utils/issueDisplayFormat'
+
+function localizeIssue(text) {
+  return localizeCursorTermsInText(text == null ? '' : String(text))
+}
 
 const props = defineProps({
   issues: { type: Array, required: true },

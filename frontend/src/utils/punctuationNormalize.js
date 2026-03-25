@@ -17,3 +17,13 @@ export function normalizeAsciiPunctuation(input) {
   s = s.replace(/\u2018|\u2019/g, "'") // ‘ ’
   return s
 }
+
+/**
+ * 逗号分隔内容在规范化后统一为「逗号 + 空格」，便于阅读（字体大小、行高、字重、过渡时间、字体族列表等）
+ */
+export function formatCommaListSpacing(input) {
+  if (input == null || input === '') return ''
+  let s = normalizeAsciiPunctuation(String(input))
+  const parts = s.split(/[,，]/).map((p) => p.trim()).filter((p) => p.length > 0)
+  return parts.join(', ')
+}

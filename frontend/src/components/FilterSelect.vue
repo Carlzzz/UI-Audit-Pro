@@ -85,7 +85,8 @@ onUnmounted(() => {
   width: 100%;
   box-sizing: border-box;
   margin: 0;
-  padding: 9px 36px 9px 12px;
+  /* 右内边距 = 箭头 inset + 图标约 16px + 与文字间距 */
+  padding: 9px calc(var(--input-chevron-inset, 10px) + 16px + 10px) 9px 12px;
   border: 1px solid #dbe0ea;
   border-radius: 8px;
   font-size: 14px;
@@ -94,7 +95,7 @@ onUnmounted(() => {
   background-color: #fff;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 10px center;
+  background-position: right var(--input-chevron-inset, 10px) center;
   background-size: 16px;
   color: #374151;
   text-align: left;

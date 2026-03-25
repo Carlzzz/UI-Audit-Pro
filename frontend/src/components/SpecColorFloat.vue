@@ -26,11 +26,12 @@
             @input="onPickerInput"
           />
           <input
-            v-model="localHex"
+            :value="localHex"
             type="text"
             class="spec-float-input spec-float-input--grow spec-float-input--mono"
             autocomplete="off"
             spellcheck="false"
+            @input="onHexTextInput"
           />
         </div>
       </div>
@@ -68,19 +69,35 @@ const panelStyle = computed(() => ({
 
 const normalizedHex = computed(() => {
   let h = String(localHex.value || '').trim()
-  if (!/^#[0-9A-Fa-f]{6}$/.test(h)) return '#000000'
-  return h
+  if (!/^#[0-9A-Fa-f]{6}$/i.test(h)) return '#000000'
+  return h.toUpperCase()
 })
 
 function onPickerInput(e) {
-  localHex.value = e.target.value
+  localHex.value = String(e.target.value || '').toUpperCase()
+}
+
+function normalizeHexInput(raw) {
+  let v = String(raw || '').trim()
+  if (!v) return ''
+  if (!v.startsWith('#')) {
+    const alnum = v.replace(/[^0-9a-fA-F]/g, '').toUpperCase().slice(0, 6)
+    return alnum ? `#${alnum}` : ''
+  }
+  const body = v.slice(1).replace(/[^0-9a-fA-F]/g, '').toUpperCase().slice(0, 6)
+  if (!body) return '#'
+  return `#${body}`
+}
+
+function onHexTextInput(e) {
+  localHex.value = normalizeHexInput(e?.target?.value ?? '')
 }
 
 function syncFromProps() {
   localLabel.value = props.initialLabel || ''
   let h = String(props.initialHex || '#000000').trim()
   if (!/^#[0-9A-Fa-f]{6}$/i.test(h)) h = '#000000'
-  localHex.value = h
+  localHex.value = h.toUpperCase()
 }
 
 function close() {
@@ -88,8 +105,8 @@ function close() {
 }
 
 function submit() {
-  let hex = String(localHex.value || '').trim()
-  if (!/^#[0-9A-Fa-f]{6}$/i.test(hex)) {
+  let hex = normalizeHexInput(localHex.value)
+  if (!/^#[0-9A-F]{6}$/.test(hex)) {
     hex = normalizedHex.value
   }
   emit('confirm', { label: localLabel.value.trim(), hex })

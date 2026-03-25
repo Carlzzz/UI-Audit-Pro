@@ -2,6 +2,7 @@ from static_scanner import run_static_scan
 import json
 import base64
 import os
+from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from ai_service import generate_diagnosis
 from restoration_scoring import compute_restoration_score
@@ -45,6 +46,318 @@ def _static_file_line_count(path: str) -> int:
             return 120
 
 
+def _rect_group_key(rect: dict) -> str:
+    if not isinstance(rect, dict):
+        return ""
+    try:
+        top = int(round(float(rect.get("top", 0))))
+        left = int(round(float(rect.get("left", 0))))
+        width = int(round(float(rect.get("width", 0))))
+        height = int(round(float(rect.get("height", 0))))
+    except Exception:
+        return ""
+    return f"{top},{left},{width},{height}"
+
+
+def _rect_iou(rect_a: dict, rect_b: dict) -> float:
+    if not isinstance(rect_a, dict) or not isinstance(rect_b, dict):
+        return 0.0
+    try:
+        ax1 = float(rect_a.get("left", 0))
+        ay1 = float(rect_a.get("top", 0))
+        aw = max(0.0, float(rect_a.get("width", 0)))
+        ah = max(0.0, float(rect_a.get("height", 0)))
+        bx1 = float(rect_b.get("left", 0))
+        by1 = float(rect_b.get("top", 0))
+        bw = max(0.0, float(rect_b.get("width", 0)))
+        bh = max(0.0, float(rect_b.get("height", 0)))
+    except Exception:
+        return 0.0
+
+    if aw <= 0 or ah <= 0 or bw <= 0 or bh <= 0:
+        return 0.0
+
+    ax2, ay2 = ax1 + aw, ay1 + ah
+    bx2, by2 = bx1 + bw, by1 + bh
+    inter_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    inter_h = max(0.0, min(ay2, by2) - max(ay1, by1))
+    inter = inter_w * inter_h
+    if inter <= 0:
+        return 0.0
+    union = aw * ah + bw * bh - inter
+    return (inter / union) if union > 0 else 0.0
+
+
+def _rect_center_distance(rect_a: dict, rect_b: dict) -> float:
+    if not isinstance(rect_a, dict) or not isinstance(rect_b, dict):
+        return 10**9
+    try:
+        acx = float(rect_a.get("left", 0)) + float(rect_a.get("width", 0)) / 2
+        acy = float(rect_a.get("top", 0)) + float(rect_a.get("height", 0)) / 2
+        bcx = float(rect_b.get("left", 0)) + float(rect_b.get("width", 0)) / 2
+        bcy = float(rect_b.get("top", 0)) + float(rect_b.get("height", 0)) / 2
+    except Exception:
+        return 10**9
+    return ((acx - bcx) ** 2 + (acy - bcy) ** 2) ** 0.5
+
+
+def _merge_similar_issues(issues: list) -> list:
+    """
+    合并同类型且同区域问题，避免同一块区域重复刷屏。
+    分组维度：title + category + 同区域（rect 高重叠或中心点近邻）。
+    """
+    if not isinstance(issues, list) or len(issues) <= 1:
+        return issues if isinstance(issues, list) else []
+
+    merged = []
+    bucket_groups = {}
+    order = []
+
+    for item in issues:
+        if not isinstance(item, dict):
+            continue
+        key_base = (
+            str(item.get("title", "")).strip(),
+            str(item.get("category", "")).strip(),
+        )
+
+        rect = item.get("rect") if isinstance(item.get("rect"), dict) else {}
+        if key_base not in bucket_groups:
+            bucket_groups[key_base] = []
+
+        target_group = None
+        for grp in bucket_groups[key_base]:
+            base_rect = grp.get("rect") if isinstance(grp.get("rect"), dict) else {}
+            iou = _rect_iou(base_rect, rect)
+            center_dist = _rect_center_distance(base_rect, rect)
+            # 同一片区域：重叠足够高，或中心点非常接近（应对细微抖动/尺寸差异）
+            if iou >= 0.55 or center_dist <= 14:
+                target_group = grp
+                break
+
+        if target_group is None:
+            cloned = dict(item)
+            cloned["_merge_count"] = 1
+            cloned["_merge_descs"] = []
+            cloned["_merge_suggestions"] = []
+            desc = str(item.get("desc", "")).strip()
+            sug = str(item.get("suggestion", "")).strip()
+            if desc:
+                cloned["_merge_descs"].append(desc)
+            if sug:
+                cloned["_merge_suggestions"].append(sug)
+            bucket_groups[key_base].append(cloned)
+            order.append(cloned)
+            continue
+
+        base = target_group
+        base["_merge_count"] += 1
+        desc = str(item.get("desc", "")).strip()
+        sug = str(item.get("suggestion", "")).strip()
+        if desc and desc not in base["_merge_descs"]:
+            base["_merge_descs"].append(desc)
+        if sug and sug not in base["_merge_suggestions"]:
+            base["_merge_suggestions"].append(sug)
+
+    for one in order:
+        cnt = one.pop("_merge_count", 1)
+        descs = one.pop("_merge_descs", [])
+        sugs = one.pop("_merge_suggestions", [])
+        if cnt > 1:
+            merged_desc = "；".join(descs[:3]) if descs else ""
+            if len(descs) > 3:
+                merged_desc += "；..."
+            if merged_desc:
+                one["desc"] = f"同区域同类问题共 {cnt} 项：{merged_desc}"
+            else:
+                one["desc"] = f"同区域同类问题共 {cnt} 项。"
+            if sugs:
+                one["suggestion"] = sugs[0]
+        merged.append(one)
+
+    return merged
+
+
+def _merge_global_issue_types(issues: list) -> list:
+    """
+    对高频且噪音大的问题做全局聚合（跨区域）：
+    例如「行高异常」，避免同页重复刷屏。
+    """
+    if not isinstance(issues, list) or len(issues) <= 1:
+        return issues if isinstance(issues, list) else []
+
+    global_merge_titles = {
+        "行高异常",
+    }
+
+    merged = []
+    bucket = {}
+    order = []
+
+    for item in issues:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        category = str(item.get("category", "")).strip()
+        if title not in global_merge_titles:
+            merged.append(item)
+            continue
+
+        key = (title, category)
+        if key not in bucket:
+            cloned = dict(item)
+            cloned["_merge_count"] = 1
+            cloned["_merge_descs"] = []
+            cloned["_merge_suggestions"] = []
+            desc = str(item.get("desc", "")).strip()
+            sug = str(item.get("suggestion", "")).strip()
+            if desc:
+                cloned["_merge_descs"].append(desc)
+            if sug:
+                cloned["_merge_suggestions"].append(sug)
+            bucket[key] = cloned
+            order.append(key)
+            continue
+
+        base = bucket[key]
+        base["_merge_count"] += 1
+        desc = str(item.get("desc", "")).strip()
+        sug = str(item.get("suggestion", "")).strip()
+        if desc and desc not in base["_merge_descs"]:
+            base["_merge_descs"].append(desc)
+        if sug and sug not in base["_merge_suggestions"]:
+            base["_merge_suggestions"].append(sug)
+
+    for key in order:
+        one = bucket[key]
+        cnt = one.pop("_merge_count", 1)
+        descs = one.pop("_merge_descs", [])
+        sugs = one.pop("_merge_suggestions", [])
+        if cnt > 1:
+            merged_desc = "；".join(descs[:3]) if descs else ""
+            if len(descs) > 3:
+                merged_desc += "；..."
+            one["desc"] = f"全页同类问题共 {cnt} 处。{merged_desc}" if merged_desc else f"全页同类问题共 {cnt} 处。"
+            if sugs:
+                one["suggestion"] = sugs[0]
+        merged.append(one)
+
+    return merged
+
+
+def _merge_same_column_cluster_issues(issues: list, left_tol: float = 26.0) -> list:
+    """
+    同一表格「操作列」等：title + category + suggestion 相同且横向位置接近（同列）时合并为一条，
+    避免同一按钮文案问题在每一行重复出现。
+    """
+    if not isinstance(issues, list) or len(issues) <= 1:
+        return issues
+
+    def rect_left(item: dict) -> float:
+        r = item.get("rect") if isinstance(item.get("rect"), dict) else {}
+        try:
+            return float(r.get("left", 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def cluster_key(item: dict):
+        return (
+            str(item.get("title", "")).strip(),
+            str(item.get("category", "")).strip(),
+            str(item.get("suggestion", "")).strip(),
+        )
+
+    buckets = {}
+    for i, item in enumerate(issues):
+        if not isinstance(item, dict):
+            continue
+        buckets.setdefault(cluster_key(item), []).append(i)
+
+    merge_children: dict = {}  # child_index -> master_index
+
+    for _k, idxs in buckets.items():
+        if len(idxs) <= 1:
+            continue
+        n = len(idxs)
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                li = rect_left(issues[idxs[i]])
+                lj = rect_left(issues[idxs[j]])
+                if abs(li - lj) <= left_tol:
+                    union(i, j)
+
+        clusters: dict = {}
+        for i in range(n):
+            r = find(i)
+            clusters.setdefault(r, []).append(idxs[i])
+
+        for _root, members in clusters.items():
+            if len(members) < 2:
+                continue
+            members.sort(
+                key=lambda ii: (
+                    float((issues[ii].get("rect") or {}).get("top", 0)),
+                    float((issues[ii].get("rect") or {}).get("left", 0)),
+                )
+            )
+            master = members[0]
+            for m in members[1:]:
+                merge_children[m] = master
+
+    masters: dict = {}
+    for child, master in merge_children.items():
+        masters.setdefault(master, []).append(child)
+
+    out = []
+    for i, item in enumerate(issues):
+        if not isinstance(item, dict):
+            out.append(item)
+            continue
+        if i in merge_children:
+            continue
+        if i in masters:
+            group = [i] + masters[i]
+            group.sort(
+                key=lambda ii: (
+                    float((issues[ii].get("rect") or {}).get("top", 0)),
+                    float((issues[ii].get("rect") or {}).get("left", 0)),
+                )
+            )
+            base = dict(issues[group[0]])
+            cnt = len(group)
+            descs = []
+            for gi in group:
+                d = str(issues[gi].get("desc", "")).strip()
+                if d and d not in descs:
+                    descs.append(d)
+            merged_desc = "；".join(descs[:5])
+            if len(descs) > 5:
+                merged_desc += "；..."
+            base["desc"] = (
+                f"同列同类问题共 {cnt} 处。{merged_desc}"
+                if merged_desc
+                else f"同列同类问题共 {cnt} 处。"
+            )
+            out.append(base)
+        else:
+            out.append(item)
+
+    return out
+
+
 # 注意这里新增了 mode 参数
 async def run_audit_task(url: str, config: dict, mode: str):
     # 🌟 新增：检测是否为本地路径进行静态扫描
@@ -63,20 +376,57 @@ async def run_audit_task(url: str, config: dict, mode: str):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         # 强制锁定 1440 视口，保证与设计稿对齐
-        context_args = {'viewport': {'width': 1440, 'height': 1080}}
+        context_args = {
+            'viewport': {'width': 1440, 'height': 1080},
+            # 内网 HTTPS 常见企业证书链问题：允许忽略证书错误，避免直接失败
+            'ignore_https_errors': True
+        }
+
+        # 若系统配置了代理（很多 VPN / 内网网关依赖），透传给 Playwright
+        proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("https_proxy") or os.environ.get("http_proxy")
+        if proxy_url:
+            context_args['proxy'] = {'server': proxy_url}
         
         # 处理授权注入 (Headers / Cookie)
         custom_headers = {}
         if config.get("authHeader"):
             # 支持直接填入 Bearer xxxx 格式
             custom_headers["Authorization"] = config.get("authHeader")
-        if config.get("cookieStr"):
-            custom_headers["Cookie"] = config.get("cookieStr")
-            
+        # 注意：Cookie 不再走 extra_http_headers 注入，改为 context.add_cookies（更稳定）
         if custom_headers:
             context_args['extra_http_headers'] = custom_headers
 
         context = await browser.new_context(**context_args)
+
+        # Cookie 注入（内网 SSO / 会话站点更依赖此方式）
+        cookie_str = (config.get("cookieStr") or "").strip()
+        if cookie_str:
+            try:
+                parsed = urlparse(url if url.startswith("http") else f"http://{url}")
+                host = parsed.hostname or ""
+                secure = (parsed.scheme == "https")
+                cookie_items = []
+                for kv in cookie_str.split(";"):
+                    kv = kv.strip()
+                    if not kv or "=" not in kv:
+                        continue
+                    k, v = kv.split("=", 1)
+                    k = k.strip()
+                    v = v.strip()
+                    if not k:
+                        continue
+                    cookie_items.append({
+                        "name": k,
+                        "value": v,
+                        "domain": host,
+                        "path": "/",
+                        "httpOnly": False,
+                        "secure": secure,
+                    })
+                if cookie_items:
+                    await context.add_cookies(cookie_items)
+            except Exception as e:
+                print(f"Cookie 注入失败（继续执行）: {e}")
         
         # 注入 LocalStorage (如果有的话)
         if config.get("localStorageStr"):
@@ -94,7 +444,11 @@ async def run_audit_task(url: str, config: dict, mode: str):
 
         try:
             # 🚨 核心修复 1：把 networkidle 改为 domcontentloaded，防止无休止的等待和跳转销毁上下文
-            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            # 内网 + VPN 下首包/重定向更慢，超时放宽，并增加一次重试
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            except Exception:
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(2000) # 给动态渲染一点时间
             
             # === 新增：通用账号密码自动登录逻辑 ===
@@ -520,6 +874,22 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 const matchesAnyToken = (val, tokens, tolerance = 0.1) =>
                     tokens.some(t => Math.abs(val - t) <= tolerance);
 
+                /** 子节点或部分控件上 fontSize 可能为 0，向上继承有效字号，避免误报「实测 0px」 */
+                const resolveEffectiveFontSizePx = (node, computedStyle) => {
+                    let fs = parseFloat(computedStyle.fontSize);
+                    if (fs > 0) return fs;
+                    let p = node && node.parentElement;
+                    for (let i = 0; i < 12 && p; i++) {
+                        try {
+                            const ps = window.getComputedStyle(p);
+                            const f = parseFloat(ps.fontSize);
+                            if (f > 0) return f;
+                        } catch (e) {}
+                        p = p.parentElement;
+                    }
+                    return fs;
+                };
+
                 /** 实测值（px）是否为任一基准值的整数倍；≤0 视为通过 */
                 const isMultipleOfAnyPx = (val, bases) => {
                     const vf = Number(val);
@@ -574,8 +944,22 @@ async def run_audit_task(url: str, config: dict, mode: str):
                 let allowedRadius = parsePxTokenList(config.radiusTokens);
                 if (!allowedRadius.length) allowedRadius = [4, 8, 12];
                 const parseTransitionList = (raw) => {
+                    const normOne = (tok) => {
+                        let t = String(tok || '').trim().replace(/\\s+/g, '');
+                        if (!t) return '';
+                        const ms = t.match(/^([\\d.]+)ms$/i);
+                        if (ms) {
+                            const sec = parseFloat(ms[1]) / 1000;
+                            return Number.isFinite(sec) ? (sec.toFixed(6).replace(/\\.?0+$/, '') || '0') + 's' : t;
+                        }
+                        t = t.replace(/s+$/gi, '');
+                        const num = t.match(/^([\\d.]+)/);
+                        if (!num) return t;
+                        const v = parseFloat(num[1]);
+                        return Number.isFinite(v) ? (v.toFixed(6).replace(/\\.?0+$/, '') || '0') + 's' : t;
+                    };
                     if (typeof raw === 'string' && raw.trim()) {
-                        const arr = raw.split(',').map(s => s.trim()).filter(Boolean);
+                        const arr = raw.split(',').map(s => normOne(s.trim())).filter(Boolean);
                         if (arr.length) return arr;
                     }
                     return ['0.2s', '0.3s'];
@@ -630,8 +1014,81 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     const cords = { top: rect.top + window.scrollY, left: rect.left + window.scrollX, width: rect.width, height: rect.height };
 
                     const svgInnerTags = ['svg','path','line','circle','rect','g','polyline','polygon','ellipse','use','defs','clippath','mask','symbol','text','tspan'];
-                    const isInteractive = config.hoverCheck !== false && (['button', 'a', 'input', 'select', 'textarea'].includes(tag) ||
-                        (style.cursor === 'pointer' && !svgInnerTags.includes(tag) && !el.closest('[aria-hidden="true"]')));
+                    const role = (el.getAttribute('role') || '').toLowerCase();
+                    const clsStr = (typeof el.className === 'string')
+                        ? el.className
+                        : ((el.className && typeof el.className.baseVal === 'string') ? el.className.baseVal : '');
+                    const clsLower = clsStr.toLowerCase();
+                    const isDisabledClass = (node) => {
+                        if (!node) return false;
+                        const raw = (typeof node.className === 'string')
+                            ? node.className
+                            : ((node.className && typeof node.className.baseVal === 'string') ? node.className.baseVal : '');
+                        return /(^|\\s)(disabled|is-disabled|ant-btn-disabled|el-button--disabled|btn-disabled|is-readonly)(\\s|$)/i.test((raw || '').toLowerCase());
+                    };
+                    const isDisabledNode = (node) => {
+                        if (!node || node.nodeType !== 1) return false;
+                        let nStyle = null;
+                        try { nStyle = window.getComputedStyle(node); } catch(e) { nStyle = null; }
+                        const ariaDisabled = (node.getAttribute && (node.getAttribute('aria-disabled') || '').toLowerCase() === 'true');
+                        const attrDisabled = !!node.disabled || (node.hasAttribute && node.hasAttribute('disabled'));
+                        const classDisabled = isDisabledClass(node);
+                        const styleDisabled = !!nStyle && (
+                            nStyle.pointerEvents === 'none' ||
+                            nStyle.cursor === 'not-allowed' ||
+                            parseFloat(nStyle.opacity || '1') <= 0.45
+                        );
+                        return ariaDisabled || attrDisabled || classDisabled || styleDisabled;
+                    };
+                    const hasDisabledAncestor = (() => {
+                        let p = el;
+                        for (let i = 0; i < 4 && p; i++) {
+                            if (isDisabledNode(p)) return true;
+                            p = p.parentElement;
+                        }
+                        return false;
+                    })();
+                    const isDisabledLike = hasDisabledAncestor;
+                    const interactiveRole = ['button','link','menuitem','tab','switch','option'].includes(role);
+                    const hasTabStop = el.hasAttribute('tabindex') && String(el.getAttribute('tabindex')) !== '-1';
+                    const hasClickHandler = typeof el.onclick === 'function' || el.hasAttribute('onclick');
+                    const hasDataAction = ['role', 'data-action', 'data-click', 'data-testid'].some((k) => {
+                        try { return !!el.getAttribute(k); } catch(e) { return false; }
+                    });
+                    const isNativeInteractive = ['button', 'a', 'input', 'select', 'textarea'].includes(tag);
+                    const interactiveClsLike = /\\bant-btn\\b|\\bel-button\\b|\\bbtn\\b|\\bbutton\\b|\\bclickable\\b/.test(clsLower);
+                    const hasInteractiveAncestor = (() => {
+                        const anc = el.closest && el.closest('button,a,[role="button"],[role="link"],[onclick],[tabindex],.ant-btn,.el-button,.btn,.clickable');
+                        return !!anc && anc !== el;
+                    })();
+                    // 只把“可独立交互的宿主节点”当作可点击目标，避免误把按钮内 icon/线条当成独立热区
+                    const isInteractiveHost = (
+                        config.hoverCheck !== false &&
+                        !svgInnerTags.includes(tag) &&
+                        !el.closest('[aria-hidden="true"]') &&
+                        !isDisabledLike &&
+                        !hasInteractiveAncestor &&
+                        (isNativeInteractive || interactiveRole || hasTabStop || hasClickHandler || hasDataAction || interactiveClsLike)
+                    );
+                    const isInteractive = isInteractiveHost;
+                    /** 仅一项的面包屑（当前页标题）或最后一项（当前页）不要求可点击热区/手势等交互检测 */
+                    const isBreadcrumbNonInteractiveContext = (node) => {
+                        try {
+                            if (!node || !node.closest) return false;
+                            const bc = node.closest('.ant-breadcrumb, .el-breadcrumb, .breadcrumb');
+                            if (!bc) return false;
+                            const items = bc.querySelectorAll('li.ant-breadcrumb-item, .el-breadcrumb__item, .breadcrumb-item');
+                            if (items.length <= 1) return true;
+                            const lastItem = items[items.length - 1];
+                            if (lastItem && lastItem.contains(node)) return true;
+                            const links = bc.querySelectorAll('.ant-breadcrumb-link, .el-breadcrumb__inner');
+                            if (links.length <= 1) return true;
+                            const lastLink = links[links.length - 1];
+                            return !!(lastLink && lastLink.contains(node));
+                        } catch (e) {
+                            return false;
+                        }
+                    };
                     const hasText = el.innerText && el.innerText.trim().length > 0;
 
                     // ==========================================
@@ -668,8 +1125,8 @@ async def run_audit_task(url: str, config: dict, mode: str):
                             issues.push({ id: issueId++, title: "字体族违规", level: "medium", category: "视觉", desc: `实测 ${style.fontFamily}`, suggestion: `规范字体: ${allowedFamilies.join(', ')}`, rect: cords });
                         }
                         
-                        const fs = parseFloat(style.fontSize);
-                        if (!matchesAnyToken(fs, allowedFonts, 0.5)) {
+                        const fs = resolveEffectiveFontSizePx(el, style);
+                        if (fs > 0 && !matchesAnyToken(fs, allowedFonts, 0.5)) {
                             issues.push({ id: issueId++, title: "字号不在基准值内", level: "medium", category: "视觉", desc: `实测 ${fs}px`, suggestion: `规范字号为: ${allowedFonts.join(', ')}`, rect: cords });
                         }
 
@@ -755,34 +1212,102 @@ async def run_audit_task(url: str, config: dict, mode: str):
                     // ==========================================
                     
                     // 2.1 交互反馈
-                    if (isInteractive) {
-                        if (rect.width < minClickArea || rect.height < minClickArea) {
-                            issues.push({ id: issueId++, title: "点击热区过小", level: "high", category: "交互", desc: `实测 ${Math.round(rect.width)}x${Math.round(rect.height)}px`, suggestion: `尺寸应 >= ${minClickArea}px`, rect: cords });
+                    if (isInteractive && !isBreadcrumbNonInteractiveContext(el)) {
+                        // 优先估算“实际可命中热区”：若宿主元素内只有小图标，但其父层承载点击事件/按钮语义，则取更大的可点击容器
+                        const resolveHitAreaRect = (node, nodeRect) => {
+                            const candidates = [node];
+                            let p = node ? node.parentElement : null;
+                            for (let i = 0; i < 3 && p; i++) {
+                                candidates.push(p);
+                                p = p.parentElement;
+                            }
+                            let best = nodeRect;
+                            let bestArea = (nodeRect?.width || 0) * (nodeRect?.height || 0);
+                            for (const c of candidates) {
+                                if (!c || c.nodeType !== 1) continue;
+                                const cTag = (c.tagName || '').toLowerCase();
+                                if (svgInnerTags.includes(cTag)) continue;
+                                const cClsRaw = (typeof c.className === 'string')
+                                    ? c.className
+                                    : ((c.className && typeof c.className.baseVal === 'string') ? c.className.baseVal : '');
+                                const cCls = (cClsRaw || '').toLowerCase();
+                                const cRole = (c.getAttribute && (c.getAttribute('role') || '').toLowerCase()) || '';
+                                const cClickable = (
+                                    ['button', 'a', 'input', 'select', 'textarea'].includes(cTag) ||
+                                    ['button', 'link', 'menuitem', 'tab', 'switch', 'option'].includes(cRole) ||
+                                    (c.hasAttribute && (c.hasAttribute('onclick') || c.hasAttribute('tabindex'))) ||
+                                    /\\bant-btn\\b|\\bel-button\\b|\\bbtn\\b|\\bbutton\\b|\\bclickable\\b/.test(cCls)
+                                );
+                                if (!cClickable || isDisabledNode(c)) continue;
+                                let cRect = null;
+                                try { cRect = c.getBoundingClientRect(); } catch(e) { cRect = null; }
+                                if (!cRect || cRect.width <= 0 || cRect.height <= 0) continue;
+                                const area = cRect.width * cRect.height;
+                                if (area > bestArea) {
+                                    bestArea = area;
+                                    best = cRect;
+                                }
+                            }
+                            return best || nodeRect;
+                        };
+                        const hitRect = resolveHitAreaRect(el, rect);
+                        if (hitRect.width < minClickArea || hitRect.height < minClickArea) {
+                            issues.push({ id: issueId++, title: "点击热区过小", level: "high", category: "交互", desc: `实测 ${Math.round(hitRect.width)}x${Math.round(hitRect.height)}px`, suggestion: `尺寸应 >= ${minClickArea}px`, rect: { top: hitRect.top + window.scrollY, left: hitRect.left + window.scrollX, width: hitRect.width, height: hitRect.height } });
                         }
                         if (config.gestureCheck !== false) {
-                            if (el.disabled || el.classList.contains('disabled')) {
-                                if (style.cursor !== 'not-allowed') {
-                                    issues.push({ id: issueId++, title: "禁用状态光标错误", level: "medium", category: "交互", desc: `实测 ${style.cursor}`, suggestion: `应使用 not-allowed`, rect: cords });
+                            // 禁用态元素不做可点击光标校验，避免“本来不可点击”被误报
+                            // 未悬停时 getComputedStyle 常为 auto/default，与浏览器显示箭头一致，不作为缺陷
+                            if (!isDisabledLike && style.cursor !== 'pointer' && style.cursor !== 'not-allowed' && tag !== 'input' && tag !== 'textarea') {
+                                const cur = String(style.cursor || '').trim().toLowerCase();
+                                if (cur !== 'auto' && cur !== 'default') {
+                                    const cursorZh = (() => {
+                                        const m = {
+                                            'auto': '自动', 'default': '默认', 'pointer': '手型指针', 'text': '文本选择',
+                                            'move': '移动', 'not-allowed': '禁止', 'wait': '等待', 'help': '帮助',
+                                            'progress': '处理中', 'crosshair': '十字准星', 'grab': '抓取', 'grabbing': '抓取中',
+                                            'none': '无', 'alias': '快捷方式', 'cell': '单元格选择', 'copy': '复制',
+                                            'col-resize': '列宽调整', 'row-resize': '行高调整', 'n-resize': '纵向调整',
+                                            'e-resize': '横向调整', 'ns-resize': '纵向调整', 'ew-resize': '横向调整',
+                                            'nwse-resize': '对角调整', 'nesw-resize': '对角调整',
+                                        };
+                                        return m[cur] || (cur ? `光标样式为 ${cur}` : '未知');
+                                    })();
+                                    issues.push({ id: issueId++, title: "可点击元素光标错误", level: "high", category: "交互", desc: `实测为「${cursorZh}」`, suggestion: `悬浮上去，应使用手型指针`, rect: cords });
                                 }
-                            } else if (style.cursor !== 'pointer' && tag !== 'input' && tag !== 'textarea') {
-                                issues.push({ id: issueId++, title: "可点击元素光标错误", level: "medium", category: "交互", desc: `实测 ${style.cursor}`, suggestion: `应使用 pointer`, rect: cords });
                             }
                         }
                     }
 
-                    // 2.2 布局控制
+                    // 2.2 布局控制：单行溢出 + ellipsis（排除 white-space 可换行、导航品牌区等误报）
                     if (config.textFormatCheck !== false && hasText && style.display === 'block' && (style.width !== 'auto' || style.maxWidth !== 'none')) {
-                        if (style.textOverflow !== 'ellipsis' && el.scrollWidth > el.clientWidth) {
-                            issues.push({ id: issueId++, title: "文本未作省略处理", level: "medium", category: "布局", desc: `文本溢出容器未加 ellipsis`, suggestion: `默认应使用省略号截断`, rect: cords });
+                        const ws = (style.whiteSpace || '').trim();
+                        if (ws === 'nowrap' || ws === 'pre') {
+                            const overflowPx = el.scrollWidth - el.clientWidth;
+                            if (overflowPx > 1 && style.textOverflow !== 'ellipsis') {
+                                const inBrand = el.closest && el.closest('.navbar-brand');
+                                if (!inBrand) {
+                                    issues.push({ id: issueId++, title: "文本未作省略处理", level: "medium", category: "布局", desc: `文本溢出容器未加 ellipsis`, suggestion: `默认应使用省略号截断`, rect: cords });
+                                }
+                            }
                         }
                     }
                     if (config.zIndexCheck !== false) {
-                        const zi = parseInt(style.zIndex);
-                        if (!isNaN(zi) && zi > 0 && zi < 1000) {
-                            if (el.classList.contains('modal') || el.classList.contains('dropdown') || style.position === 'absolute') {
-                                if (zi < 100) {
-                                    issues.push({ id: issueId++, title: "层级过低", level: "warning", category: "布局", desc: `弹窗/下拉菜单 z-index 为 ${zi}`, suggestion: `应置于最高层级防遮挡`, rect: cords });
-                                }
+                        const zi = parseInt(style.zIndex, 10);
+                        if (!isNaN(zi) && zi > 0 && zi < 1000 && zi < 100) {
+                            const cls = el.className && typeof el.className === 'string' ? el.className : '';
+                            const clsLower = cls.toLowerCase();
+                            const idStr = el.id && typeof el.id === 'string' ? el.id.toLowerCase() : '';
+                            const overlayNameRe = /\\b(modal|dialog|drawer|popover|dropdown|overlay|mask|backdrop|picker|select-dropdown|el-popper|ant-modal|ant-drawer|ant-dropdown|el-dialog|el-overlay|rc-dialog|mantine-modal|v-modal)\\b/;
+                            const isLikelyModalOrDropdown =
+                                el.classList.contains('modal') ||
+                                el.classList.contains('dropdown') ||
+                                overlayNameRe.test(clsLower) ||
+                                overlayNameRe.test(idStr) ||
+                                el.getAttribute('role') === 'dialog' ||
+                                el.getAttribute('aria-modal') === 'true' ||
+                                tag === 'dialog';
+                            if (isLikelyModalOrDropdown) {
+                                issues.push({ id: issueId++, title: "层级过低", level: "warning", category: "布局", desc: `弹窗/下拉菜单 z-index 为 ${zi}`, suggestion: `应置于最高层级防遮挡`, rect: cords });
                             }
                         }
                     }
@@ -893,6 +1418,10 @@ async def run_audit_task(url: str, config: dict, mode: str):
         # 如果是本地文件，合并静态扫描的问题
         if static_issues:
             issues.extend(static_issues)
+
+        issues = _merge_similar_issues(issues)
+        issues = _merge_same_column_cluster_issues(issues)
+        issues = _merge_global_issue_types(issues)
             
         # 生成 AI 诊断总结
         diagnosis = await generate_diagnosis(issues)

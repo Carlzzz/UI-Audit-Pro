@@ -81,7 +81,7 @@
             </thead>
             <tbody>
               <template v-if="reportData.issues && reportData.issues.length > 0">
-                <tr v-for="issue in filteredTableIssues" :key="issue.id" class="data-row">
+                <tr v-for="issue in pagedTableIssues" :key="issue.id" class="data-row">
                   <td class="attr-name" :title="issue.title">{{ (issue.title || '未知').substring(0,8) }}</td>
                   <td class="actual-val" :class="`val-${getIssueUrgency(issue)}`">{{ extractValue(issue.desc, true) }}</td>
                   <td class="standard-val">
@@ -95,10 +95,50 @@
             </tbody>
           </table>
 
+          <div
+            v-if="reportData.issues && reportData.issues.length > 0 && totalFilteredCount > 0"
+            class="dash-pagination-bar"
+          >
+            <div class="dash-pg-left">
+              <span class="dash-pg-total">共 {{ totalFilteredCount }} 条</span>
+              <label class="dash-pg-size">
+                <span>每页</span>
+                <select v-model.number="tablePageSize" class="dash-pg-select">
+                  <option v-for="n in tablePageSizeOptions" :key="n" :value="n">{{ n }}</option>
+                </select>
+                <span>条</span>
+              </label>
+            </div>
+            <div class="dash-pg-center">
+              <button
+                type="button"
+                class="dash-pg-nav dash-pg-nav-icon"
+                :disabled="tableCurrentPage <= 1"
+                @click="tableCurrentPage = Math.max(1, tableCurrentPage - 1)"
+                aria-label="上一页"
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
+              <span class="dash-pg-indicator">第 {{ tableCurrentPage }} / {{ tableTotalPages }} 页</span>
+              <button
+                type="button"
+                class="dash-pg-nav dash-pg-nav-icon"
+                :disabled="tableCurrentPage >= tableTotalPages"
+                @click="tableCurrentPage = Math.min(tableTotalPages, tableCurrentPage + 1)"
+                aria-label="下一页"
+              >
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          </div>
+
           <div class="sidebar-footer">
             <div class="fix-suggestion-box">
               <div class="fs-title"><span>🤖</span> AI 整体诊断结论</div>
-              <div class="fs-text">{{ reportData.diagnosis || '大模型未返回整体诊断。' }}</div>
+              <ul v-if="diagnosisBulletHtmlList.length > 0" class="fs-bullets">
+                <li v-for="(html, idx) in diagnosisBulletHtmlList" :key="idx" v-html="html"></li>
+              </ul>
+              <div v-else class="fs-text" v-html="dashboardDiagnosisFallbackHtml"></div>
             </div>
           </div>
         </div>
@@ -116,13 +156,30 @@ import DashboardIssuePopover from '../components/DashboardIssuePopover.vue'
 import FilterSelect from '../components/FilterSelect.vue'
 import { useAuditStore } from '../store/audit'
 import { getIssueUrgency, getCategoryType } from '../utils/issueUrgency'
+import { splitDiagnosisLines, diagnosisMarkdownBoldToHtml } from '../utils/diagnosisFormat'
 
 const router = useRouter()
 const auditStore = useAuditStore()
 const reportData = auditStore.reportData
 
+const diagnosisBulletHtmlList = computed(() => {
+  const raw = reportData?.diagnosis
+  if (!raw || typeof raw !== 'string') return []
+  const lines = splitDiagnosisLines(raw)
+  return lines.map((line) => diagnosisMarkdownBoldToHtml(line))
+})
+
+const dashboardDiagnosisFallbackHtml = computed(() => {
+  const raw = reportData?.diagnosis
+  if (!raw || typeof raw !== 'string' || !raw.trim()) return '大模型未返回整体诊断。'
+  return diagnosisMarkdownBoldToHtml(raw)
+})
+
 const zoom = ref(50)
 const selectedCategory = ref('all')
+const tablePageSizeOptions = [10, 20, 50, 100]
+const tablePageSize = ref(20)
+const tableCurrentPage = ref(1)
 const hoveredIssues = ref([])
 const hoveredRectKey = ref(null)
 const hoveredAnchorEl = ref(null)
@@ -378,6 +435,36 @@ const filteredTableIssues = computed(() => {
   return reportData.issues.filter(i => getCategoryType(i.category, i) === selectedCategory.value)
 })
 
+const totalFilteredCount = computed(() => filteredTableIssues.value.length)
+
+const tableTotalPages = computed(() => {
+  const n = totalFilteredCount.value
+  const size = Math.max(1, Number(tablePageSize.value) || 20)
+  return Math.max(1, Math.ceil(n / size))
+})
+
+const pagedTableIssues = computed(() => {
+  const list = filteredTableIssues.value
+  const size = Math.max(1, Number(tablePageSize.value) || 20)
+  const page = Math.min(Math.max(1, tableCurrentPage.value), tableTotalPages.value)
+  const start = (page - 1) * size
+  return list.slice(start, start + size)
+})
+
+watch(tablePageSize, () => {
+  tableCurrentPage.value = 1
+})
+
+watch(selectedCategory, () => {
+  tableCurrentPage.value = 1
+})
+
+watch([totalFilteredCount, tablePageSize, tableTotalPages], () => {
+  if (tableCurrentPage.value > tableTotalPages.value) {
+    tableCurrentPage.value = Math.max(1, tableTotalPages.value)
+  }
+})
+
 /** 同一框选矩形（rect 一致）下的全部问题，顺序与报告 issues 一致 */
 function collectIssuesForRect(rect) {
   const key = rectKey(rect)
@@ -538,17 +625,29 @@ const goTo = (path) => router.push(path)
 .fs-title { font-size: 0.9rem; font-weight: 600; color: #1A6AFF; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
 .fs-title span { font-size: 16px; }
 .fs-text { font-size: 0.85rem; color: #4b5563; line-height: 1.6; }
+.fs-bullets {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 0.85rem;
+  color: #4b5563;
+  line-height: 1.65;
+  list-style-type: disc;
+}
+.fs-bullets li { margin-bottom: 8px; }
+.fs-bullets li:last-child { margin-bottom: 0; }
+.fs-bullets li :deep(strong),
+.fs-text :deep(strong) { font-weight: 700; color: #1a1d2e; }
 
 .dash-category-select { width: 110px; min-width: 110px; flex-shrink: 0; }
 .dash-category-select :deep(.filter-select-trigger) {
   height: 28px;
-  padding: 0 28px 0 10px;
+  padding: 0 calc(var(--input-chevron-inset, 10px) + 14px + 6px) 0 10px;
   font-size: 12px;
   border-radius: 4px;
   border-color: #e5e7eb;
   background-color: #f9fafb;
   color: #4b5563;
-  background-position: right 6px center;
+  background-position: right var(--input-chevron-inset, 10px) center;
   background-size: 14px;
 }
 .dash-category-select :deep(.filter-select-menu) {
@@ -559,5 +658,102 @@ const goTo = (path) => router.push(path)
 .dash-category-select :deep(.filter-select-option) {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.dash-pagination-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 12px 16px 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  font-size: 13px;
+  color: #4b5563;
+  flex-shrink: 0;
+}
+.dash-pg-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+.dash-pg-total {
+  color: #6b7280;
+  white-space: nowrap;
+}
+.dash-pg-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  cursor: pointer;
+  color: #6b7280;
+  white-space: nowrap;
+}
+.dash-pg-select {
+  height: 30px;
+  min-width: 52px;
+  padding: 0 calc(var(--input-chevron-inset, 10px) + 14px) 0 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background-color: #fff;
+  font-size: 13px;
+  color: #1a1d2e;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--input-chevron-inset, 10px) center;
+  background-size: 12px;
+}
+.dash-pg-select:focus {
+  outline: none;
+  border-color: #1a6aff;
+  box-shadow: 0 0 0 2px rgba(26, 106, 255, 0.15);
+}
+.dash-pg-center {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  justify-content: center;
+  margin-left: auto;
+}
+.dash-pg-nav {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dash-pg-nav:hover:not(:disabled) {
+  border-color: #d1d5db;
+  color: #374151;
+}
+.dash-pg-nav:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.dash-pg-indicator {
+  color: #6b7280;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.dash-pg-nav-icon {
+  width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
 }
 </style>

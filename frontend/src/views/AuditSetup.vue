@@ -48,14 +48,16 @@
       <div class="main-content">
         <div class="config-panel-sheet">
         <div class="content-header">
-          <div>
+          <div class="content-header-text">
             <div class="breadcrumb">新建走查 <span class="sep">/</span> <span class="cur">{{ activeTab === 'baseline' ? '基准值模式' : (activeTab.startsWith('comp_') ? '组件模式' : '设计稿模式') }}</span></div>
             <h2>{{ activeTab === 'baseline' ? '基准值模式' : (activeTab.startsWith('comp_') ? '组件模式' : '设计稿模式') }}</h2>
-            <p class="subtitle">定义设计走查的全局基准规范或接入设计资源</p>
-          </div>
-          <div class="toggle-group-top" @click="activeTab === 'baseline' ? baselineConfig.globalEnable = !baselineConfig.globalEnable : (activeTab.startsWith('comp_') ? componentConfig.globalEnable = !componentConfig.globalEnable : designConfig.globalEnable = !designConfig.globalEnable)">
-             <span style="font-size:14px; font-weight:bold; color:#1a1d2e; margin-right:8px;">一键开启</span>
-             <div class="toggle" :class="{on: activeTab === 'baseline' ? baselineConfig.globalEnable : (activeTab.startsWith('comp_') ? componentConfig.globalEnable : designConfig.globalEnable)}"></div>
+            <div class="content-header-subrow">
+              <p class="subtitle">定义设计走查的全局基准规范或接入设计资源</p>
+              <div class="toggle-group-top" @click="activeTab === 'baseline' ? baselineConfig.globalEnable = !baselineConfig.globalEnable : (activeTab.startsWith('comp_') ? componentConfig.globalEnable = !componentConfig.globalEnable : designConfig.globalEnable = !designConfig.globalEnable)">
+                <span class="toggle-group-top-label">一键开启</span>
+                <div class="toggle" :class="{on: activeTab === 'baseline' ? baselineConfig.globalEnable : (activeTab.startsWith('comp_') ? componentConfig.globalEnable : designConfig.globalEnable)}"></div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -80,7 +82,7 @@
                   <div class="btn-add" @click.stop="addColor($event)">+ 添加色值</div>
                   <div class="form-row mt-3">
                     <label>偏差阈值：</label>
-                    <input type="text" v-model="baselineConfig.colorThreshold" class="input-sm" style="width:80px; padding:4px; border:1px solid #e2e4ec; border-radius:4px;" />
+                    <input type="text" v-model="baselineConfig.colorThreshold" class="input-sm" style="width:104px; padding:4px; border:1px solid #e2e4ec; border-radius:4px;" />
                   </div>
                 </div>
               </div>
@@ -92,7 +94,7 @@
                   <label>栅格对齐检测（px 倍数）</label>
                   <div class="toggle" :class="{on: baselineConfig.gridCheck}"></div>
                 </div>
-                <p class="field-hint">填写栅格基准 px（如 8、4）。走查时宽度及容器 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
+                <p class="field-hint">填写栅格基准 px（如 4、5）。走查时宽度及容器 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
                 <div class="tags mt-2">
                   <span class="tag" v-for="(t, idx) in baselineConfig.gridTokens" :key="'g'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.gridTokens, idx)">🗑</span></span>
                   <span class="tag-add" @click="addToken($event, baselineConfig.gridTokens, '8px', '添加栅格基准值')">+ 添加</span>
@@ -105,18 +107,6 @@
                 <div class="tags mt-2">
                   <span class="tag" v-for="(t, idx) in baselineConfig.radiusTokens" :key="'r'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.radiusTokens, idx)">🗑</span></span>
                   <span class="tag-add" @click="addToken($event, baselineConfig.radiusTokens, '16px', '添加圆角值')">+ 添加</span>
-                </div>
-              </div>
-
-              <!-- 动画与过渡 -->
-              <div class="card mb-4">
-                <h4>动画与过渡</h4>
-                <div class="form-row mt-2" @click="baselineConfig.transitionCheck = !baselineConfig.transitionCheck">
-                  <label>过渡持续时间</label>
-                  <div class="toggle" :class="{on: baselineConfig.transitionCheck}"></div>
-                </div>
-                <div class="form-group mt-2">
-                   <input type="text" v-model="baselineConfig.transitions" @blur="normBaselineListFields" />
                 </div>
               </div>
 
@@ -163,7 +153,7 @@
                 <h4>字体与排版</h4>
                 <div class="form-group">
                   <label>字体族</label>
-                  <input type="text" v-model="baselineConfig.fontFamily" @blur="normBaselineListFields" />
+                  <input type="text" v-model="baselineConfig.fontFamily" :title="baselineConfig.fontFamily || ''" class="input-ellipsis" @blur="normBaselineListFields" />
                 </div>
                 <div class="form-group">
                   <label>字体大小</label>
@@ -179,7 +169,7 @@
                 </div>
                 <div class="form-group">
                   <label>间距规范（px 倍数）</label>
-                  <p class="field-hint">填写间距基准 px（如 4、8）。走查时 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
+                  <p class="field-hint">填写间距基准 px（如 4、5）。走查时 margin/padding 须为<strong>其中任一数的整数倍</strong>，满足一条即通过；可自由增删改。</p>
                   <div class="tags">
                     <span class="tag" v-for="(t, idx) in baselineConfig.spacingTokens" :key="'s'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.spacingTokens, idx)">✕</span></span>
                     <span class="tag-add" @click="addToken($event, baselineConfig.spacingTokens, '8px', '添加间距基准值')">+ 添加</span>
@@ -221,6 +211,18 @@
                     <span class="tag" v-for="(t, idx) in baselineConfig.iconStrokeTokens" :key="'is'+idx">{{t}} <span class="tag-rm" @click="removeToken(baselineConfig.iconStrokeTokens, idx)">🗑</span></span>
                     <span class="tag-add" @click="addToken($event, baselineConfig.iconStrokeTokens, '2.5px', '添加描边粗细')">+ 添加</span>
                   </div>
+                </div>
+              </div>
+
+              <!-- 动画与过渡（放在阴影与图标下方） -->
+              <div class="card mb-4">
+                <h4>动画与过渡</h4>
+                <div class="form-row mt-2" @click="baselineConfig.transitionCheck = !baselineConfig.transitionCheck">
+                  <label>过渡持续时间</label>
+                  <div class="toggle" :class="{on: baselineConfig.transitionCheck}"></div>
+                </div>
+                <div class="form-group mt-2">
+                   <input type="text" v-model="baselineConfig.transitions" @blur="normBaselineListFields" />
                 </div>
               </div>
             </div>
@@ -348,7 +350,7 @@
           </div>
 
           <!-- 5. 鉴权与登录状态 (新增强大特性) -->
-          <div class="section-title mt-4"><span class="icon blue">🔑</span> 5. 页面鉴权与登录状态</div>
+          <div class="section-title mt-4"><span class="section-title-key-icon" aria-hidden="true"><IconStroke name="lock" size="md" strokeWeight="2" /></span> 5. 页面鉴权与登录状态</div>
           <div class="card">
              <p class="desc mb-3">如果走查的目标页面需要登录后才能访问，请在此处提供认证信息 (三选一即可)：</p>
              <div class="grid-2 mb-3">
@@ -364,8 +366,25 @@
              <div class="grid-2" style="border-top: 1px dashed #e8eaf0; padding-top: 16px;">
                <div class="form-group">
                  <label>请求头 Cookie</label>
-                 <input type="text" v-model="baselineConfig.cookieStr" placeholder="例如: session_id=123456789; token=abc..." />
-                 <small style="color:#9ca3af; font-size: 12px; margin-top:4px; display:block;">推荐！免除验证码烦恼</small>
+                 <div class="input-cookie-pair input-cookie-pair--nowrap" role="group" aria-label="Cookie 键值">
+                   <input
+                     type="text"
+                     v-model="baselineConfig.cookieKey"
+                     class="input-cookie-key"
+                     placeholder="名称，如CMECLOUDTOKEN"
+                     autocomplete="off"
+                   />
+                   <span class="input-cookie-eq" aria-hidden="true">=</span>
+                   <input
+                     type="text"
+                     v-model="baselineConfig.cookieValue"
+                     class="input-cookie-value"
+                     placeholder="值，如fb427786617d45f59076056ec8a0f85c9b6a17eef3104199afa9210ef8fec365"
+                     :title="baselineConfig.cookieValue || ''"
+                     autocomplete="off"
+                   />
+                 </div>
+                 <small style="color:#9ca3af; font-size: 12px; margin-top:4px; display:block;">推荐！免除验证码烦恼（中间「=」已固定，无需手输）</small>
                </div>
                <div class="form-group">
                  <label>LocalStorage 注入 (JSON 格式)</label>
@@ -413,7 +432,7 @@
             </div>
           </div>
           
-          <div class="section-title mt-4"><span class="icon blue">🔑</span> 页面鉴权与登录状态</div>
+          <div class="section-title mt-4"><span class="section-title-key-icon" aria-hidden="true"><IconStroke name="lock" size="md" strokeWeight="2" /></span> 页面鉴权与登录状态</div>
           <div class="card mb-4">
              <p class="desc mb-3">如果走查的目标页面需要登录后才能访问，请在此处提供认证信息 (三选一即可)：</p>
              <div class="grid-2 mb-3">
@@ -429,7 +448,25 @@
              <div class="grid-2" style="border-top: 1px dashed #e8eaf0; padding-top: 16px;">
                <div class="form-group">
                  <label>请求头 Cookie</label>
-                 <input type="text" v-model="componentConfig.cookieStr" placeholder="例如: session_id=123..." />
+                 <div class="input-cookie-pair input-cookie-pair--nowrap" role="group" aria-label="Cookie 键值">
+                   <input
+                     type="text"
+                     v-model="componentConfig.cookieKey"
+                     class="input-cookie-key"
+                     placeholder="名称，如CMECLOUDTOKEN"
+                     autocomplete="off"
+                   />
+                   <span class="input-cookie-eq" aria-hidden="true">=</span>
+                   <input
+                     type="text"
+                     v-model="componentConfig.cookieValue"
+                     class="input-cookie-value"
+                     placeholder="值，如fb427786617d45f59076056ec8a0f85c9b6a17eef3104199afa9210ef8fec365"
+                     :title="componentConfig.cookieValue || ''"
+                     autocomplete="off"
+                   />
+                 </div>
+                 <small style="color:#9ca3af; font-size: 12px; margin-top:4px; display:block;">中间「=」已固定，无需手输</small>
                </div>
                <div class="form-group">
                  <label>LocalStorage 注入 (JSON)</label>
@@ -491,7 +528,7 @@
         
           
           <div class="section-title mt-4">
-            <span class="section-icon" aria-hidden="true"><IconStroke name="ruler" size="md" /></span>
+            <span class="section-icon" aria-hidden="true"><IconStroke name="ruler" size="md" stroke-weight="2" /></span>
             对比区域设置
           </div>
           <div class="card">
@@ -502,7 +539,7 @@
                </div>
                <div class="form-group">
                  <label>设备类型</label>
-                 <select v-model="designConfig.deviceType">
+                 <select v-model="designConfig.deviceType" class="select-chevron-inset">
                     <option value="桌面端">桌面端 (Desktop)</option>
                     <option value="移动端">移动端 (Mobile)</option>
                  </select>
@@ -516,7 +553,7 @@
           </div>
 
           <div class="section-title mt-4">
-            <span class="section-icon" aria-hidden="true"><IconStroke name="chip-ai" size="md" /></span>
+            <span class="section-icon" aria-hidden="true"><IconStroke name="chip-ai" size="md" stroke-weight="2" /></span>
             AI 智能分析
           </div>
           <div class="card">
@@ -531,7 +568,7 @@
           </div>
 
           <div class="section-title mt-4">
-            <span class="section-icon" aria-hidden="true"><IconStroke name="crosshair" size="md" /></span>
+            <span class="section-icon" aria-hidden="true"><IconStroke name="crosshair" size="md" stroke-weight="2" /></span>
             对比精度设置
           </div>
           <div class="card mb-4">
@@ -568,7 +605,7 @@
           </div>
           
           <!-- 鉴权部分同样加给设计稿模式 -->
-          <div class="section-title mt-4"><span class="icon blue">🔑</span> 页面鉴权与登录状态</div>
+          <div class="section-title mt-4"><span class="section-title-key-icon" aria-hidden="true"><IconStroke name="lock" size="md" strokeWeight="2" /></span> 页面鉴权与登录状态</div>
           <div class="card mb-4">
              <p class="desc mb-3">如果走查的目标页面需要登录后才能访问，请在此处提供认证信息 (三选一即可)：</p>
              <div class="grid-2 mb-3">
@@ -584,7 +621,25 @@
              <div class="grid-2" style="border-top: 1px dashed #e8eaf0; padding-top: 16px;">
                <div class="form-group">
                  <label>请求头 Cookie</label>
-                 <input type="text" v-model="designConfig.cookieStr" placeholder="例如: session_id=123..." />
+                 <div class="input-cookie-pair input-cookie-pair--nowrap" role="group" aria-label="Cookie 键值">
+                   <input
+                     type="text"
+                     v-model="designConfig.cookieKey"
+                     class="input-cookie-key"
+                     placeholder="名称，如CMECLOUDTOKEN"
+                     autocomplete="off"
+                   />
+                   <span class="input-cookie-eq" aria-hidden="true">=</span>
+                   <input
+                     type="text"
+                     v-model="designConfig.cookieValue"
+                     class="input-cookie-value"
+                     placeholder="值，如fb427786617d45f59076056ec8a0f85c9b6a17eef3104199afa9210ef8fec365"
+                     :title="designConfig.cookieValue || ''"
+                     autocomplete="off"
+                   />
+                 </div>
+                 <small style="color:#9ca3af; font-size: 12px; margin-top:4px; display:block;">中间「=」已固定，无需手输</small>
                </div>
                <div class="form-group">
                  <label>LocalStorage 注入 (JSON)</label>
@@ -624,7 +679,12 @@ import axios from 'axios'
 import { openSpecAddPanel, confirmSpecAddPanel, openColorEditPanel } from '../utils/specModal'
 import { showToastInfo, showToastSuccess } from '../utils/modal'
 import { normalizeResponsiveBreakpoints } from '../utils/baselineConfig'
-import { normalizeAsciiPunctuation } from '../utils/punctuationNormalize'
+import { normalizeAsciiPunctuation, formatCommaListSpacing } from '../utils/punctuationNormalize'
+import {
+  sortCommaSeparatedNumericList,
+  sortPixelLikeTokenArray,
+  normalizeTransitionDurationsList,
+} from '../utils/specValueSort'
 
 const router = useRouter()
 const auditStore = useAuditStore()
@@ -684,6 +744,8 @@ const defaultBaseline = {
   textFormatCheck: true,
   globalEnable: true,
   cookieStr: '',
+  cookieKey: '',
+  cookieValue: '',
   localStorageStr: '',
   loginUser: '',
   loginPwd: ''
@@ -702,6 +764,8 @@ const defaultDesign = {
   ignoreAds: false,
   anchor: 0,
   cookieStr: '',
+  cookieKey: '',
+  cookieValue: '',
   localStorageStr: '',
   loginUser: '',
   loginPwd: ''
@@ -776,6 +840,8 @@ const defaultComponent = {
   checkTableAlignment: true,
   checkFormSpacing: true,
   cookieStr: '',
+  cookieKey: '',
+  cookieValue: '',
   localStorageStr: '',
   loginUser: '',
   loginPwd: ''
@@ -785,6 +851,45 @@ const defaultComponent = {
 const baselineConfig = reactive(JSON.parse(JSON.stringify(defaultBaseline)))
 const designConfig = reactive(JSON.parse(JSON.stringify(defaultDesign)))
 const componentConfig = reactive(JSON.parse(JSON.stringify(defaultComponent)))
+
+/** 请求头 Cookie：界面拆成「键」「值」，内部仍序列化为 cookieStr（name=value）供后端使用 */
+function hydrateCookiePair(cfg) {
+  if (!cfg || typeof cfg !== 'object') return
+  const s = String(cfg.cookieStr ?? '').trim()
+  if (!s) {
+    cfg.cookieKey = ''
+    cfg.cookieValue = ''
+    return
+  }
+  const first = s.split(';')[0].trim()
+  const i = first.indexOf('=')
+  if (i < 0) {
+    cfg.cookieKey = first
+    cfg.cookieValue = ''
+    return
+  }
+  cfg.cookieKey = first.slice(0, i).trim()
+  cfg.cookieValue = first.slice(i + 1).trim()
+}
+
+function syncCookieStrFromPair(cfg) {
+  if (!cfg || typeof cfg !== 'object') return
+  const k = String(cfg.cookieKey ?? '').trim()
+  cfg.cookieStr = k ? `${k}=${cfg.cookieValue ?? ''}` : ''
+}
+
+watch(
+  () => [baselineConfig.cookieKey, baselineConfig.cookieValue],
+  () => syncCookieStrFromPair(baselineConfig)
+)
+watch(
+  () => [componentConfig.cookieKey, componentConfig.cookieValue],
+  () => syncCookieStrFromPair(componentConfig)
+)
+watch(
+  () => [designConfig.cookieKey, designConfig.cookieValue],
+  () => syncCookieStrFromPair(designConfig)
+)
 
 const isDirty = ref(false)
 
@@ -818,9 +923,16 @@ onMounted(async () => {
         if (res.data.data.baseline_config) {
           Object.assign(baselineConfig, res.data.data.baseline_config)
           normalizeResponsiveBreakpoints(baselineConfig)
+          hydrateCookiePair(baselineConfig)
         }
-        if (res.data.data.design_config) Object.assign(designConfig, res.data.data.design_config)
-        if (res.data.data.component_config) Object.assign(componentConfig, res.data.data.component_config)
+        if (res.data.data.design_config) {
+          Object.assign(designConfig, res.data.data.design_config)
+          hydrateCookiePair(designConfig)
+        }
+        if (res.data.data.component_config) {
+          Object.assign(componentConfig, res.data.data.component_config)
+          hydrateCookiePair(componentConfig)
+        }
       }
     } catch (e) {
       console.error('获取远端配置失败:', e)
@@ -842,21 +954,43 @@ onMounted(async () => {
   }, 100)
 })
 
-/** 列表类文本失焦：全角标点转半角，避免中文输入法下的「，」「、」导致解析与走查不一致 */
+/** 列表类文本：全角标点转半角 + 数值类按从小到大排序 */
 const normBaselineListFields = () => {
-  ;['transitions', 'fontFamily', 'fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
+  if (baselineConfig.fontFamily != null && baselineConfig.fontFamily !== '') {
+    baselineConfig.fontFamily = formatCommaListSpacing(baselineConfig.fontFamily)
+  }
+  ;['fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
     if (baselineConfig[k] != null && baselineConfig[k] !== '') {
-      baselineConfig[k] = normalizeAsciiPunctuation(baselineConfig[k])
+      baselineConfig[k] = formatCommaListSpacing(
+        sortCommaSeparatedNumericList(normalizeAsciiPunctuation(baselineConfig[k]))
+      )
     }
   })
+  if (baselineConfig.transitions != null && baselineConfig.transitions !== '') {
+    baselineConfig.transitions = formatCommaListSpacing(
+      normalizeTransitionDurationsList(normalizeAsciiPunctuation(baselineConfig.transitions))
+    )
+  }
+  sortPixelLikeTokenArray(baselineConfig.spacingTokens)
+  sortPixelLikeTokenArray(baselineConfig.gridTokens)
+  sortPixelLikeTokenArray(baselineConfig.radiusTokens)
+  sortPixelLikeTokenArray(baselineConfig.buttonHeightTokens)
+  sortPixelLikeTokenArray(baselineConfig.inputHeightTokens)
+  sortPixelLikeTokenArray(baselineConfig.iconTokens)
+  sortPixelLikeTokenArray(baselineConfig.iconStrokeTokens)
+  sortPixelLikeTokenArray(baselineConfig.responsiveBreakpoints)
 }
 
 const normComponentTypographyFields = () => {
   const t = componentConfig.typography
   if (!t || typeof t !== 'object') return
-  ;['family', 'sizes', 'lineHeights', 'weights'].forEach((k) => {
-    if (t[k] != null && t[k] !== '') t[k] = normalizeAsciiPunctuation(t[k])
+  if (t.family != null && t.family !== '') t.family = normalizeAsciiPunctuation(t.family)
+  ;['sizes', 'lineHeights', 'weights'].forEach((k) => {
+    if (t[k] != null && t[k] !== '') {
+      t[k] = sortCommaSeparatedNumericList(normalizeAsciiPunctuation(t[k]))
+    }
   })
+  if (Array.isArray(t.spacingTokens)) sortPixelLikeTokenArray(t.spacingTokens)
 }
 
 /**
@@ -866,17 +1000,38 @@ const normComponentTypographyFields = () => {
  */
 const normalizeBaselineStringsOnPlain = (obj) => {
   if (!obj || typeof obj !== 'object') return
-  ;['transitions', 'fontFamily', 'fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
-    if (obj[k] != null && obj[k] !== '') obj[k] = normalizeAsciiPunctuation(obj[k])
+  if (obj.fontFamily != null && obj.fontFamily !== '') {
+    obj.fontFamily = formatCommaListSpacing(obj.fontFamily)
+  }
+  ;['fontSizes', 'lineHeights', 'fontWeights'].forEach((k) => {
+    if (obj[k] != null && obj[k] !== '') {
+      obj[k] = formatCommaListSpacing(
+        sortCommaSeparatedNumericList(normalizeAsciiPunctuation(obj[k]))
+      )
+    }
+  })
+  if (obj.transitions != null && obj.transitions !== '') {
+    obj.transitions = formatCommaListSpacing(
+      normalizeTransitionDurationsList(normalizeAsciiPunctuation(obj.transitions))
+    )
+  }
+  ;['spacingTokens', 'gridTokens', 'radiusTokens', 'buttonHeightTokens', 'inputHeightTokens', 'iconTokens', 'iconStrokeTokens', 'responsiveBreakpoints'].forEach((k) => {
+    if (Array.isArray(obj[k])) sortPixelLikeTokenArray(obj[k])
   })
 }
 
 const normalizeComponentTypographyOnPlain = (obj) => {
   const t = obj?.typography
   if (!t || typeof t !== 'object') return
-  ;['family', 'sizes', 'lineHeights', 'weights'].forEach((k) => {
-    if (t[k] != null && t[k] !== '') t[k] = normalizeAsciiPunctuation(t[k])
+  if (t.family != null && t.family !== '') t.family = formatCommaListSpacing(t.family)
+  ;['sizes', 'lineHeights', 'weights'].forEach((k) => {
+    if (t[k] != null && t[k] !== '') {
+      t[k] = formatCommaListSpacing(
+        sortCommaSeparatedNumericList(normalizeAsciiPunctuation(t[k]))
+      )
+    }
   })
+  if (Array.isArray(t.spacingTokens)) sortPixelLikeTokenArray(t.spacingTokens)
 }
 
 /** 与开启走查、保存会话共用：当前 Tab 对应的模式键 */
@@ -889,15 +1044,18 @@ const getSessionModeKey = () => {
 /** 序列化当前表单为本次走查配置（深拷贝；不修改 reactive，避免 watch 清空 sessionDraft） */
 const buildConfigSnapshotForScan = () => {
   if (activeTab.value === 'baseline') {
+    syncCookieStrFromPair(baselineConfig)
     const snap = JSON.parse(JSON.stringify(baselineConfig))
     normalizeBaselineStringsOnPlain(snap)
     return snap
   }
   if (activeTab.value.startsWith('comp_')) {
+    syncCookieStrFromPair(componentConfig)
     const snap = JSON.parse(JSON.stringify(componentConfig))
     normalizeComponentTypographyOnPlain(snap)
     return snap
   }
+  syncCookieStrFromPair(designConfig)
   return JSON.parse(JSON.stringify(designConfig))
 }
 
@@ -939,13 +1097,13 @@ const onColorFloatConfirm = (payload) => {
     }
     baselineConfig.colors.push({
       label: payload.label?.trim() || '新增色值',
-      hex: payload.hex,
+      hex: String(payload.hex || '').trim().toUpperCase(),
     })
   } else {
     const i = colorFloat.editIdx
     if (i != null && baselineConfig.colors[i]) {
       baselineConfig.colors[i].label = payload.label
-      baselineConfig.colors[i].hex = payload.hex
+      baselineConfig.colors[i].hex = String(payload.hex || '').trim().toUpperCase()
     }
   }
   colorFloat.editIdx = null
@@ -1024,10 +1182,10 @@ const addColor = (e) => {
   background-image:
     radial-gradient(ellipse 70% 50% at 50% 45%, rgba(255, 255, 255, 0.65) 0%, transparent 58%),
     radial-gradient(ellipse 40% 30% at 90% 10%, rgba(226, 232, 255, 0.5) 0%, transparent 48%),
-    radial-gradient(ellipse 45% 35% at 8% 92%, rgba(232, 238, 252, 0.45) 0%, transparent 50%),
-    url('/images/audit-setup-bg.png');
+    radial-gradient(ellipse 45% 35% at 8% 92%, rgba(232, 238, 252, 0.45) 0%, transparent 50%);
   background-size: cover;
-  background-position: center center;
+  /* 将背景图对齐到顶部，裁掉图底部黑边 */
+  background-position: center top;
   background-repeat: no-repeat;
 }
 .config-layout { display: flex; max-width: 1440px; margin: 0 auto; min-height: calc(100vh - 60px); }
@@ -1068,23 +1226,32 @@ const addColor = (e) => {
 }
 .config-panel-sheet .content-header {
   padding: 22px 28px 18px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: block;
   border-bottom: 1px solid rgba(240, 241, 245, 0.8);
 }
-.content-header { padding: 30px 40px 10px; display: flex; justify-content: space-between; align-items: flex-start; }
+.content-header { padding: 30px 40px 10px; display: block; }
+.content-header-text { width: 100%; }
+.content-header-subrow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
 .form-container { padding: 0 40px; flex: 1; }
 .config-panel-sheet .form-container { padding: 20px 28px 30px; flex: 0 0 auto; }
 
 .breadcrumb { font-size: 13px; color: #9ca3af; margin-bottom: 8px; }
 .breadcrumb .cur { color: #1a1d2e; font-weight: bold; }
 h2 { margin: 0; font-size: 24px; color: #1a1d2e; }
-.subtitle { margin: 6px 0 0 0; color: #6b7280; font-size: 14px; }
+.subtitle { margin: 0; color: #6b7280; font-size: 14px; flex: 1; min-width: min(100%, 240px); line-height: 1.5; }
 
+.toggle-group-top-label { font-size: 14px; font-weight: bold; color: #1a1d2e; margin-right: 8px; }
 .toggle-group-top {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -1096,7 +1263,28 @@ h2 { margin: 0; font-size: 24px; color: #1a1d2e; }
 }
 
 .section-title { font-size: 18px; font-weight: bold; color: #1a1d2e; margin-bottom: 16px; display: flex; align-items: center; }
-.section-title .section-icon { display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; color: currentColor; }
+.section-title .section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-right: 10px;
+  color: currentColor;
+}
+.section-title .section-icon :deep(svg) {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+.section-title .section-title-key-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  color: #1A6AFF;
+}
 .card-hd-with-icon { display: flex; align-items: center; gap: 8px; margin: 0 0 16px 0; font-size: 15px; color: #1a1d2e; }
 .card-hd-icon { display: inline-flex; color: currentColor; flex-shrink: 0; }
 .a11y-card { display: flex; flex-direction: column; min-height: 168px; }
@@ -1145,10 +1333,139 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; font-size: 13px; color: #4b5563; margin-bottom: 8px; font-weight: 500; }
 .form-group input[type="text"], .form-group input[type="number"], select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid #e2e4ec; border-radius: 8px; outline: none; font-size: 14px; box-sizing: border-box;}
+.form-group input.input-ellipsis[type="text"] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.form-group input::placeholder,
+.input-with-unit input::placeholder {
+  font-size: 12px;
+}
 .form-group input:focus, select:focus { border-color: #1A6AFF; }
-.input-with-unit { display: flex; align-items: center; background: #fff; border: 1px solid #e2e4ec; border-radius: 8px; overflow: hidden; }
-.input-with-unit input { border: none; flex: 1; border-radius: 0; }
-.input-with-unit span { padding: 0 12px; background: #f9fafb; color: #6b7280; font-size: 13px; border-left: 1px solid #e2e4ec; height: 100%; display: flex; align-items: center;}
+.input-with-unit {
+  display: flex;
+  align-items: stretch;
+  background: #fff;
+  border: 1px solid #e2e4ec;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+.input-with-unit:focus-within {
+  border-color: #1a6aff;
+}
+.input-with-unit input[type="number"],
+.input-with-unit input[type="text"],
+.input-with-unit input {
+  flex: 1;
+  width: auto !important;
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none;
+  background: #fff;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.input-with-unit input:focus {
+  outline: none;
+  box-shadow: none;
+}
+.input-with-unit span {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  margin: 0;
+  background: #fff;
+  color: #6b7280;
+  font-size: 13px;
+  border-left: 1px solid #e2e4ec;
+  border-radius: 0;
+}
+.input-cookie-pair {
+  display: flex;
+  align-items: stretch;
+  background: #fff;
+  border: 1px solid #e2e4ec;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+.input-cookie-pair--nowrap {
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+.input-cookie-pair:focus-within {
+  border-color: #1a6aff;
+}
+.input-cookie-pair input[type="text"] {
+  height: 40px;
+  padding: 0 10px;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none;
+  background: #fff;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.input-cookie-key {
+  flex: 0 0 168px;
+  width: 168px !important;
+  min-width: 96px;
+  max-width: 220px;
+}
+.input-cookie-value {
+  flex: 1 1 40%;
+  min-width: 0 !important;
+  width: auto !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.input-cookie-pair input::placeholder {
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.input-cookie-pair input[type="text"]:focus {
+  outline: none;
+  box-shadow: none;
+}
+.input-cookie-eq {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 15px;
+  font-weight: 600;
+  border-left: 1px solid #e2e4ec;
+  border-right: 1px solid #e2e4ec;
+  user-select: none;
+}
+/* 下拉箭头距右侧 10px */
+select.select-chevron-inset {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8.5 1.5 4h9z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--input-chevron-inset, 10px) center;
+  padding-right: 32px;
+}
+select.select-chevron-inset:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231A6AFF' d='M6 8.5 1.5 4h9z'/%3E%3C/svg%3E");
+}
 
 .form-row { display: flex; justify-content: space-between; align-items: center; }
 .form-row label { font-size: 13px; color: #1a1d2e; font-weight: 500; }
@@ -1162,7 +1479,7 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
 .color-row { display: flex; align-items: center; margin-bottom: 10px; padding: 8px; background: rgba(249, 250, 251, 0.8); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.4); }
 .color-box { width: 24px; height: 24px; border-radius: 4px; margin-right: 12px; }
 .color-name { flex: 1; font-size: 13px; color: #1a1d2e; }
-.color-hex { color: #6b7280; font-size: 13px; font-family: monospace; margin-right: 12px; }
+.color-hex { color: #6b7280; font-size: 13px; font-family: monospace; margin-right: 12px; text-transform: uppercase; }
 .btn-del { background: none; border: none; color: #9ca3af; cursor: pointer; }
 .btn-del:hover { color: #ef4444; }
 .btn-add { text-align: center; height: 36px; display: flex; align-items: center; justify-content: center; padding: 0 12px; border: 1px dashed rgba(209, 213, 219, 0.9); border-radius: 12px; color: #6b7280; font-size: 13px; cursor: pointer; background: rgba(255, 255, 255, 0.6); box-sizing: border-box; }
@@ -1189,7 +1506,9 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
   right: 0;
   margin: 0;
   z-index: 100;
-  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px calc(40px + env(safe-area-inset-left, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(40px + env(safe-area-inset-right, 0px));
   background: rgba(250, 251, 252, 0.98);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -1197,12 +1516,33 @@ h5 { margin: 0 0 8px 0; font-size: 14px; color: #1a1d2e; }
   box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.05);
 }
 .footer-actions-inner {
-  max-width: 1440px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
+  box-sizing: border-box;
+}
+.footer-actions-inner .btn-ghost,
+.footer-actions-inner .btn-primary {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+@media (max-width: 520px) {
+  .footer-actions-inner {
+    justify-content: stretch;
+  }
+  .footer-actions-inner .btn-ghost,
+  .footer-actions-inner .btn-primary {
+    flex: 1 1 calc(50% - 6px);
+    min-width: min(100%, 140px);
+  }
+  .footer-actions-inner .btn-primary-with-icon {
+    flex: 1 1 100%;
+  }
 }
 .w-100 { width: 100%; }
 .flex { display: flex; }

@@ -91,7 +91,7 @@
     </section>
 
     <footer class="footer">
-      © 2026 DesignCheck Pro - 自动化设计走查专家
+      版权所有 © 中国移动云能力中心. 保留所有权利
     </footer>
     </div>
   </div>
@@ -181,22 +181,42 @@ const modeBadgeLabel = (mode) => {
 .home-wrapper { min-height: 100vh; background: #fbfcfd; display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; overflow-x: hidden; position: relative; z-index: 0; }
 
 .home-main-with-bg {
-  --hero-bottom-gap: 48px;
   flex: 1;
   position: relative;
   padding-top: 100px;
-  padding-bottom: var(--hero-bottom-gap);
+  padding-bottom: 0;
+  background-color: #fbfcfd;
+  overflow: hidden;
+  isolation: isolate;
+}
+/* 背景图略放大裁切，避免 PNG 四边黑线/杂边露出 */
+.home-main-with-bg::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 110%;
+  transform: translateX(-50%) scale(1.06);
+  transform-origin: center top;
+  z-index: 0;
   background-image: url('/images/home-section-bg.png');
   background-color: #fbfcfd;
   background-size: cover;
-  background-position: top center;
+  background-position: center top;
   background-repeat: no-repeat;
+  pointer-events: none;
+}
+.home-main-with-bg > * {
+  position: relative;
+  z-index: 2;
 }
 .home-main-with-bg::after {
   content: '';
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 80px;
+  z-index: 1;
   background: linear-gradient(to bottom, transparent, #fbfcfd);
   pointer-events: none;
 }
@@ -210,7 +230,8 @@ const modeBadgeLabel = (mode) => {
 .url-input-wrap { margin-bottom: 24px; }
 .input-group { position: relative; }
 .input-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #9ca3af; display: flex; align-items: center; justify-content: center; }
-.input-field { width: 100%; height: 52px; font-size: 16px; padding: 0 16px 0 48px; border: 1px solid #e2e4ec; border-radius: 12px; outline: none; transition: border-color 0.2s; box-sizing: border-box;}
+.input-field { width: 100%; height: 52px; font-size: 14px; font-weight: 400; padding: 0 16px 0 48px; border: 1px solid #e2e4ec; border-radius: 12px; outline: none; transition: border-color 0.2s; box-sizing: border-box;}
+.input-field::placeholder { font-weight: 400; }
 .input-field:focus { border-color: #1A6AFF; box-shadow: 0 0 0 3px rgba(26, 106, 255,0.1); }
 .mode-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
 .mode-option { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1.5px solid #e2e4ec; border-radius: 12px; cursor: pointer; transition: all 0.2s; background: #fff; text-align: left;}
@@ -299,5 +320,5 @@ const modeBadgeLabel = (mode) => {
 .project-info { padding: 16px; border-top: 1px solid rgba(226, 230, 240, 0.5); }
 .project-name { font-size: 14px; font-weight: 600; color: #1a1d2e; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-time { font-size: 12px; color: #9ca3af; display: flex; align-items: center; gap: 4px; }
-.footer { text-align: center; padding: 24px; font-size: 14px; color: #6b7280; background: transparent; border: none; border-top: none; box-shadow: none; }
+.footer { text-align: center; padding: 40px 24px 20px; font-size: 14px; color: #6b7280; background: transparent; border: none; border-top: none; box-shadow: none; box-sizing: border-box; }
 </style>

@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia'
 
+/** 刷新 /report 时从 sessionStorage 恢复最近一次走查结果（仅存内存会话，关闭标签页后清除） */
+export const REPORT_SNAPSHOT_KEY = 'ui_audit_report_snapshot'
+
 export const useAuditStore = defineStore('audit', {
   state: () => ({
     checkMode: 'baseline',
@@ -27,6 +30,30 @@ export const useAuditStore = defineStore('audit', {
     },
     setReportData(data) {
       this.reportData = data
+      try {
+        if (data && typeof data === 'object') {
+          sessionStorage.setItem(REPORT_SNAPSHOT_KEY, JSON.stringify(data))
+        } else {
+          sessionStorage.removeItem(REPORT_SNAPSHOT_KEY)
+        }
+      } catch (e) {
+        console.warn('[audit] 报告快照写入 sessionStorage 失败', e)
+      }
+    },
+    /** 从 session 恢复最近一次报告（用于 /report 刷新后仍可读） */
+    restoreReportFromSession() {
+      try {
+        const raw = sessionStorage.getItem(REPORT_SNAPSHOT_KEY)
+        if (!raw) return false
+        const data = JSON.parse(raw)
+        if (data && typeof data === 'object') {
+          this.reportData = data
+          return true
+        }
+      } catch (e) {
+        console.warn('[audit] 报告快照读取失败', e)
+      }
+      return false
     },
     setTaskConfig(config) {
       if (config == null) {

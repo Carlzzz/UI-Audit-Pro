@@ -392,7 +392,8 @@ onUnmounted(() => {
   border-radius: 8px;
   outline: none;
   box-sizing: border-box;
-  font-size: 0.95rem;
+  font-size: 14px;
+  font-weight: 400;
 }
 
 .field-input:focus {
