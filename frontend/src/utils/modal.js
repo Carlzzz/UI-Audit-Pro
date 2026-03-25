@@ -63,8 +63,8 @@ export const showPrompt = (title, inputPlaceholder = '') => {
   }).then((res) => (res.isConfirmed ? res.value : null))
 }
 
-/** 20×20 面状成功图标：圆填充 #10C038，对勾白色 1.2px */
-const TOAST_SUCCESS_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="10" fill="#10C038"/><path d="M5.45 10.1 L8.45 13.1 L14.55 6.45" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`
+/** 20×20 线框成功图标：圆环 + 对勾描边 2px（与 Toast 样式一致） */
+const TOAST_SUCCESS_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="#10C038" stroke-width="2" fill="none"/><path d="M6 10.2 L9 13.2 L14.5 6.5" stroke="#10C038" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`
 
 /**
  * 顶部居中成功轻提示：无蒙版、单行 icon + 文案（样式见 main.css .ui-audit-toast--success）

@@ -41,11 +41,18 @@
             </div>
             <div class="filter-item filter-item-date">
               <label>走查日期</label>
-              <div class="date-range-group">
-                <input type="date" v-model="startDate" class="date-input" />
-                <span class="date-sep">至</span>
-                <input type="date" v-model="endDate" class="date-input" />
-              </div>
+              <VueDatePicker
+                v-model="dateRange"
+                range
+                :locale="zhCN"
+                :enable-time-picker="false"
+                :auto-apply="true"
+                format="yyyy-MM-dd"
+                placeholder="请选择开始与结束日期"
+                :action-row="dateActionRow"
+                class="history-date-picker"
+                teleport="body"
+              />
             </div>
             <div class="filter-actions-span">
               <button type="button" class="btn btn-primary" @click="applyFilters">查询</button>
@@ -97,6 +104,9 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { VueDatePicker } from '@vuepic/vue-datepicker'
+import '@vuepic/vue-datepicker/dist/main.css'
+import { zhCN } from 'date-fns/locale'
 import AppNavbar from '../components/AppNavbar.vue'
 import IconStroke from '../components/IconStroke.vue'
 import FilterSelect from '../components/FilterSelect.vue'
@@ -118,6 +128,16 @@ const searchKeyword = ref('')
 const selectedMode = ref('all')
 const startDate = ref('')
 const endDate = ref('')
+/** @vuepic/vue-datepicker 范围值，与 startDate/endDate（yyyy-MM-dd）同步 */
+const dateRange = ref(null)
+const dateActionRow = {
+  showSelect: false,
+  showCancel: true,
+  showNow: true,
+  showPreview: false,
+  cancelBtnLabel: '关闭',
+  nowBtnLabel: '今天',
+}
 const selectedIssueType = ref('all')
 const appliedFilters = ref({
   keyword: '',
@@ -214,11 +234,30 @@ const toDateString = (createdAt) => {
   return `${y}-${m}-${day}`
 }
 
-watch([startDate, endDate], ([start, end]) => {
-  if (start && end && start > end) {
-    endDate.value = start
+function formatYmd(d) {
+  if (!d) return ''
+  const x = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(x.getTime())) return ''
+  const y = x.getFullYear()
+  const m = String(x.getMonth() + 1).padStart(2, '0')
+  const day = String(x.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+watch(dateRange, (val) => {
+  if (!val || !Array.isArray(val) || val.length !== 2) {
+    startDate.value = ''
+    endDate.value = ''
+    return
   }
-})
+  let a = formatYmd(val[0])
+  let b = formatYmd(val[1])
+  if (a && b && a > b) {
+    ;[a, b] = [b, a]
+  }
+  startDate.value = a
+  endDate.value = b
+}, { deep: true })
 
 const normalizeMode = (mode) => (mode === 'static_scan' ? 'baseline' : mode)
 
@@ -236,6 +275,7 @@ const resetFilters = () => {
   searchKeyword.value = ''
   selectedMode.value = 'all'
   selectedIssueType.value = 'all'
+  dateRange.value = null
   startDate.value = ''
   endDate.value = ''
   applyFilters()
@@ -324,7 +364,7 @@ const goTo = (path) => router.push(path)
   min-height: calc(100vh - 60px - 40px);
 }
 .page-header { margin-bottom: 30px; }
-.page-title { font-size: 1.8rem; font-weight: 700; color: #1a1d2e; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+.page-title { font-size: 24px; font-weight: 700; color: #1a1d2e; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
 .page-title-icon { color: currentColor; flex-shrink: 0; }
 .empty-illus { margin-bottom: 10px; color: #9ca3af; display: flex; justify-content: center; }
 .empty-illus-muted { opacity: 0.65; }
@@ -363,7 +403,7 @@ const goTo = (path) => router.push(path)
 }
 .filter-item { min-width: 0; }
 .filter-item label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 6px; font-weight: 600; }
-.search-input, .date-input {
+.search-input {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -374,10 +414,44 @@ const goTo = (path) => router.push(path)
   background: #fff;
   color: #374151;
 }
-.search-input:focus, .date-input:focus { outline: none; border-color: #8aa7ff; box-shadow: 0 0 0 3px rgba(26, 106, 255,0.12); }
-.date-range-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.date-range-group .date-input { flex: 1; min-width: 0; }
-.date-sep { color: #6b7280; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.search-input:focus { outline: none; border-color: #8aa7ff; box-shadow: 0 0 0 3px rgba(26, 106, 255,0.12); }
+/* @vuepic/vue-datepicker：与筛选框同高、同边框风格 */
+.history-date-picker {
+  width: 100%;
+  min-width: 0;
+}
+.history-date-picker :deep(.dp__input_wrap) {
+  width: 100%;
+}
+.history-date-picker :deep(.dp__input) {
+  min-height: 40px;
+  padding: 9px 36px 9px 12px;
+  border: 1px solid #dbe0ea;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #374151;
+  background: #fff;
+  box-sizing: border-box;
+}
+.history-date-picker :deep(.dp__input:focus) {
+  border-color: #8aa7ff;
+  box-shadow: 0 0 0 3px rgba(26, 106, 255, 0.12);
+  outline: none;
+}
+/* 组件默认用 inset-inline-start:0 把图标放左侧，需用逻辑属性覆盖；内层 .dp__input_icons 自带左右 12px padding 会叠加成 ~23px */
+.history-date-picker :deep(.dp__input_icon) {
+  color: #6b7280;
+  inset-inline-start: auto !important;
+  inset-inline-end: 10px !important;
+  transform: translateY(-50%);
+}
+.history-date-picker :deep(.dp__input_icons) {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
 .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px; }
 .project-card { position: relative; background: white; border: 1px solid #e8eaf0; border-radius: 12px; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; }
 .project-card:hover { transform: translateY(-4px); box-shadow: 0 10px 24px rgba(60,72,120,0.08); border-color: rgba(26, 106, 255,0.3); }

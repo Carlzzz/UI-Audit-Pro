@@ -94,7 +94,7 @@
     </div>
 
     <footer class="login-footer">
-      版权所有 © 中国移动云能力中心. 保留所有权利。
+      版权所有 © 中国移动云能力中心. 保留所有权利
     </footer>
   </div>
 </template>
@@ -380,6 +380,7 @@ const handleSubmit = async () => {
 
 .intro-card {
   display: flex;
+  align-items: center;
   gap: 14px;
   padding: 18px 20px;
   background: rgba(255, 255, 255, 0.65);
@@ -400,6 +401,7 @@ const handleSubmit = async () => {
 }
 
 .intro-card-icon {
+  align-self: center;
   flex-shrink: 0;
   width: 40px;
   height: 40px;
@@ -478,16 +480,26 @@ const handleSubmit = async () => {
 }
 
 .input-group { text-align: left; margin-bottom: 22px; }
-.input-group label { display: block; font-size: 0.8rem; color: #4b5563; margin-bottom: 8px; font-weight: 600; }
+.input-group label {
+  display: block;
+  font-size: 14px;
+  color: #4b5563;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
 .input-group input {
   width: 100%;
-  height: 44px;
+  height: 42px;
   padding: 0 14px;
   border: 1px solid #e2e4ec;
   border-radius: 8px;
   outline: none;
   box-sizing: border-box;
-  font-size: 0.95rem;
+  font-size: 14px;
+  font-weight: 400;
+}
+.input-group input::placeholder {
+  font-weight: 400;
 }
 
 .input-group input:focus { border-color: #1A6AFF; }

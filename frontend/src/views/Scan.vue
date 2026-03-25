@@ -1,13 +1,13 @@
 <template>
     <div class="scan-wrapper">
       <AppNavbar variant="scan" :show-user-dropdown="false">
-        <template #taskId>当前任务 ID <strong>{{ taskId }}</strong></template>
         <template #actions>
           <button class="btn-icon" @click="cancelScan" title="取消走查">✕</button>
         </template>
       </AppNavbar>
   
       <div class="scan-page">
+        <div class="scan-main-stack">
         <div class="scan-preview">
           <div class="preview-topbar"></div>
           <div class="preview-highlight"></div>
@@ -23,9 +23,13 @@
         <h2 class="scan-main-title">正在进行全链路设计走查...</h2>
         <p class="scan-main-desc">AI 正在深度分析您的设计稿，识别潜在的视觉差异、组件规范及交互逻辑问题。</p>
   
+        <div class="scan-task-id">当前任务 ID <strong>{{ taskId }}</strong></div>
         <div class="progress-card">
           <div class="progress-header">
-            <span class="progress-label">📈 总扫描进度</span>
+            <span class="progress-label">
+              <IconStroke name="chart-trend" size="sm" strokeWeight="2" class="progress-chart-icon" />
+              总扫描进度
+            </span>
             <span class="progress-pct">{{ progress }}%</span>
           </div>
           <div class="progress-eta">预计剩余时间：约 {{ eta }} 秒</div>
@@ -53,11 +57,11 @@
             </div>
           </div>
         </div>
-        
-        <div class="scan-footer">
-          <div class="scan-footer-item">✦ AI 深度学习模型 v4.2</div>
-          <div class="scan-footer-item">🛡 企业级加密传输</div>
         </div>
+
+        <footer class="scan-footer-copyright">
+          版权所有 © 中国移动云能力中心. 保留所有权利
+        </footer>
       </div>
     </div>
   </template>
@@ -66,6 +70,7 @@
   import { ref, onMounted } from 'vue'
   import { useRouter } from 'vue-router'
   import AppNavbar from '../components/AppNavbar.vue'
+  import IconStroke from '../components/IconStroke.vue'
   import { useAuditStore } from '../store/audit'
   import axios from 'axios'
   import { useUserStore } from '../store/user'
@@ -150,7 +155,23 @@
   
   <style scoped>
   .scan-wrapper { background: var(--bg-page); min-height: 100vh; }
-  .scan-page { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px 40px; }
+  .scan-page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: calc(100vh - 60px);
+    box-sizing: border-box;
+    /* 整体较原先再下移 50px；底部留白由页脚 margin 控制 */
+    padding: calc(50px + clamp(48px, 8vh, 100px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+  .scan-main-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 560px;
+  }
   .scan-preview { width: 340px; max-width: 90%; background: white; border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-lg); margin-bottom: 36px; position: relative; overflow: hidden; }
   .scan-preview::before { content: ''; position: absolute; top: 0; left: -100%; width: 60%; height: 100%; background: linear-gradient(90deg, transparent, rgba(26, 106, 255, 0.08), transparent); animation: scan-sweep 2s linear infinite; }
   @keyframes scan-sweep { 0% { left: -60%; } 100% { left: 100%; } }
@@ -162,9 +183,34 @@
   .preview-line.w80 { width: 80%; } .preview-line.w60 { width: 60%; } .preview-line.w40 { width: 40%; }
   .scan-main-title { font-size: 1.8rem; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; text-align: center; }
   .scan-main-desc { color: var(--text-secondary); font-size: 0.9rem; text-align: center; max-width: 380px; margin-bottom: 32px; line-height: 1.7; }
-  .progress-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px; width: 100%; max-width: 560px; box-shadow: var(--shadow-md); }
+  .progress-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+    width: 100%;
+    max-width: 560px;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 0;
+  }
+  .scan-task-id {
+    align-self: flex-start;
+    margin: 0 0 10px 0;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: #f8faff;
+    border: 1px solid #e5e7eb;
+    border-radius: 999px;
+    padding: 3px 10px;
+    line-height: 1.2;
+  }
+  .scan-task-id strong {
+    color: #1a1d2e;
+    font-weight: 700;
+  }
   .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-  .progress-label { font-size: 0.92rem; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .progress-label { font-size: 0.92rem; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .progress-chart-icon { flex-shrink: 0; color: var(--primary); }
   .progress-pct { font-size: 1.2rem; font-weight: 700; color: var(--primary); }
   .progress-eta { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px; }
   .progress-bar-wrap { margin-bottom: 20px; height: 6px; background: #eef2ff; border-radius: 99px; overflow: hidden; }
@@ -181,7 +227,16 @@
   .status-done { background: #d1fae5; color: #065f46; }
   .status-running { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
   .status-pending { background: #f3f4f6; color: var(--text-muted); }
-  .scan-footer { display: flex; align-items: center; gap: 24px; margin-top: 28px; }
-  .scan-footer-item { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; color: var(--text-muted); }
+  .scan-footer-copyright {
+    margin: 40px 0 0;
+    padding: 0 16px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 560px;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
   @keyframes spin { 100% { transform: rotate(360deg); } }
   </style>

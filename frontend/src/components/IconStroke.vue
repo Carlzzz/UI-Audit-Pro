@@ -90,19 +90,26 @@
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5M9 12h6M10 17h4" />
     </g>
-    <!-- 设计稿模式区块标题 -->
+    <!-- 设计稿模式区块标题：对比区域 / AI / 精度（统一外接约 16×16@居中，线框 2px） -->
     <g v-else-if="name === 'ruler'">
-      <path d="M4 20L20 4" />
-      <path d="M8 3h3v3M3 8V5h3" />
+      <!-- 四角选区框，与外圈圆靶、芯片外廓视觉分量一致 -->
+      <path d="M4 10V4h6" />
+      <path d="M14 4h6v6" />
+      <path d="M20 14v6h-6" />
+      <path d="M10 20H4v-6" />
     </g>
     <g v-else-if="name === 'chip-ai'">
-      <rect x="4" y="7" width="16" height="10" rx="2" />
-      <path d="M9 12h6M12 9v6" />
-      <circle cx="17" cy="9" r="1.2" />
+      <path d="M8 3v3M10 3v3M12 3v3" />
+      <path d="M8 18v3M10 18v3M12 18v3" />
+      <path d="M3 8h3M3 10h3M3 12h3" />
+      <path d="M18 8h3M18 10h3M18 12h3" />
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.5" />
     </g>
     <g v-else-if="name === 'crosshair'">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 5v3M12 16v3M5 12h3M16 12h3" />
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 2v2M12 22v-2M2 12h2M22 12h-2" />
+      <circle cx="12" cy="12" r="2.5" />
     </g>
     <g v-else-if="name === 'report'">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -111,6 +118,12 @@
       <line x1="16" y1="17" x2="8" y2="17" />
       <polyline points="10 9 9 9 8 9" />
     </g>
+    <!-- 走查进度：柱状条（线框） -->
+    <g v-else-if="name === 'chart-trend'" fill="none">
+      <rect x="4" y="12" width="4" height="8" rx="1" />
+      <rect x="10" y="8" width="4" height="12" rx="1" />
+      <rect x="16" y="10" width="4" height="10" rx="1" />
+    </g>
   </svg>
 </template>
 
@@ -118,7 +131,7 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  /** baseline | component | design | palette | layout-grid | film | typography | layers | cursor | accessibility | ruler | chip-ai | crosshair | link | bolt | clock | inbox | search | trash | user | lock | logout | sparkle */
+  /** baseline | component | design | palette | layout-grid | film | typography | layers | cursor | accessibility | ruler | chip-ai | crosshair | link | bolt | clock | inbox | search | trash | user | lock | logout | sparkle | chart-trend */
   name: { type: String, required: true },
   /** sm 16px, md 24px, lg 32px */
   size: { type: String, default: 'md' },
